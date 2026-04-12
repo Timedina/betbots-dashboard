@@ -1,0 +1,12 @@
+# Ambientes Virtuais
+venv/
+.env
+__pycache__/
+
+# IDEs
+.vscode/
+.idea/
+
+# Logs e Dados
+*.log
+data/

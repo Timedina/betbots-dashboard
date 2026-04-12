@@ -1,0 +1,58 @@
+{
+  "35408305": {
+    "nome_jogo": "Atletico MG v Athletico-PR",
+    "competition": "Brazilian Serie A",
+    "horario": "17:30",
+    "odd_10": 8.0,
+    "odd_01": 11.5,
+    "odd_over15": 1.44,
+    "odd_btts": 1.97,
+    "odd_favorito": 2.28,
+    "favorito": "Atletico MG",
+    "liquidez_cs": 38668.04,
+    "market_id_cs": "1.255746899",
+    "salvo_em": "17:25:03"
+  },
+  "35453107": {
+    "nome_jogo": "Harbour View FC v Chapelton",
+    "competition": "Jamaican Premier League",
+    "horario": "17:30",
+    "odd_10": 12.0,
+    "odd_01": 12.0,
+    "odd_over15": 1.39,
+    "odd_btts": 1.8,
+    "odd_favorito": 2.6,
+    "favorito": "Harbour View FC",
+    "liquidez_cs": 890.35,
+    "market_id_cs": "1.256298690",
+    "salvo_em": "17:35:15"
+  },
+  "35404800": {
+    "nome_jogo": "Juan Pablo II College v UTC Cajamarca",
+    "competition": "Peruvian Primera Division",
+    "horario": "17:30",
+    "odd_10": 9.8,
+    "odd_01": 12.0,
+    "odd_over15": 1.4,
+    "odd_btts": 1.87,
+    "odd_favorito": 2.28,
+    "favorito": "Juan Pablo II College",
+    "liquidez_cs": 511.35,
+    "market_id_cs": "1.255695207",
+    "salvo_em": "17:40:14"
+  },
+  "35431044": {
+    "nome_jogo": "Universidad de Chile v La Serena",
+    "competition": "Chilean Primera Division",
+    "horario": "19:00",
+    "odd_10": 8.2,
+    "odd_01": 18.5,
+    "odd_over15": 1.35,
+    "odd_btts": 1.98,
+    "odd_favorito": 1.7,
+    "favorito": "Universidad de Chile",
+    "liquidez_cs": 4975.22,
+    "market_id_cs": "1.256030558",
+    "salvo_em": "18:55:23"
+  }
+}
