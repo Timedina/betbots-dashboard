@@ -1,6 +1,7 @@
 import os
 import time
 import json
+import logging
 import betfair_client as bf
 from telegram_client import enviar_mensagem
 from datetime import datetime, timezone, timedelta
@@ -11,15 +12,16 @@ from datetime import datetime, timezone, timedelta
 # ============================================================
 
 LIQUIDEZ_MINIMA_CS    = 500
-LIQUIDEZ_MINIMA_GOALS = 1000
+LIQUIDEZ_MINIMA_GOALS = 1000  # reservado para uso futuro
 
 # Fuso horario
 FUSO_BRASILIA = timezone(timedelta(hours=-3))
 
 # Agendamento
-MINUTOS_ANTES_INICIO  = 5    # Começa a verificar 5 min antes
-MINUTOS_APOS_INICIO   = 10   # Para de verificar 10 min depois
-INTERVALO_VERIFICACAO = 5    # Verifica a cada 5 min
+MINUTOS_ANTES_INICIO    = 5
+MINUTOS_APOS_INICIO     = 10
+INTERVALO_VERIFICACAO   = 5
+INTERVALO_RECARGA_HORAS = 1  # ← agora configurável aqui
 
 # Filtros Correct Score
 ODD_10_MINIMA = 3.5
@@ -38,18 +40,44 @@ ODD_OVER15_MAXIMA = 1.50
 ODD_BTTS_MINIMA = 1.55
 ODD_BTTS_MAXIMA = 2.30
 
+# Reconexão automática
+MAX_ERROS_CONSECUTIVOS = 5
+ESPERA_APOS_ERRO       = 30
+
 # ============================================================
 # LIGAS PERMITIDAS
-# Deixe vazio [] para aceitar TODAS as ligas
 # ============================================================
 LIGAS_PERMITIDAS = []
 
 # ============================================================
-# ARQUIVO DE PERSISTENCIA
+# PASTAS E LOGS
 # ============================================================
 PASTA_DADOS = 'dados_bot'
+PASTA_LOGS  = 'logs'
 os.makedirs(PASTA_DADOS, exist_ok=True)
+os.makedirs(PASTA_LOGS,  exist_ok=True)
 
+
+def configurar_log():
+    data_hoje = datetime.now(FUSO_BRASILIA).strftime('%Y-%m-%d')
+    log_file  = os.path.join(PASTA_LOGS, f'bot_{data_hoje}.log')
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s [%(levelname)s] %(message)s',
+        datefmt='%H:%M:%S',
+        handlers=[
+            logging.FileHandler(log_file, encoding='utf-8'),
+            logging.StreamHandler()
+        ]
+    )
+    return logging.getLogger('bot')
+
+log = configurar_log()
+
+
+# ============================================================
+# ARQUIVO DE PERSISTENCIA
+# ============================================================
 
 def arquivo_do_dia() -> str:
     data = datetime.now(FUSO_BRASILIA).strftime('%Y-%m-%d')
@@ -62,8 +90,8 @@ def carregar_aprovados_do_dia() -> dict:
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 return json.load(f)
-        except:
-            return {}
+        except Exception as e:
+            log.warning(f'Erro ao carregar aprovados: {e}')
     return {}
 
 
@@ -88,6 +116,81 @@ def salvar_aprovado(info: dict):
 
 
 # ============================================================
+# ESTATISTICAS DA SESSAO
+# ============================================================
+
+class Estatisticas:
+    def __init__(self):
+        self.jogos_analisados   = 0
+        self.jogos_aprovados    = 0
+        self.motivos_reprovacao: dict = {}
+        self.erros_consecutivos = 0
+        self.inicio_sessao      = datetime.now(FUSO_BRASILIA)
+
+    def registrar_reprovacao(self, motivos: list):
+        self.jogos_analisados += 1
+        for motivo in motivos:
+            chave = motivo.split(':')[0].strip()
+            self.motivos_reprovacao[chave] = self.motivos_reprovacao.get(chave, 0) + 1
+
+    def registrar_aprovacao(self):
+        self.jogos_analisados  += 1
+        self.jogos_aprovados   += 1
+        self.erros_consecutivos = 0
+
+    def registrar_erro(self):
+        self.erros_consecutivos += 1
+
+    def registrar_sucesso(self):
+        self.erros_consecutivos = 0
+
+    def resumo_telegram(self) -> str:
+        uptime  = datetime.now(FUSO_BRASILIA) - self.inicio_sessao
+        horas   = int(uptime.total_seconds() // 3600)
+        minutos = int((uptime.total_seconds() % 3600) // 60)
+        reprovados  = self.jogos_analisados - self.jogos_aprovados
+        top_motivos = sorted(self.motivos_reprovacao.items(), key=lambda x: x[1], reverse=True)[:3]
+        motivos_str = ' | '.join([f'{m}: {n}x' for m, n in top_motivos]) or 'Nenhum'
+        return (
+            f'📊 *Estatísticas da Sessão*\n'
+            f'━━━━━━━━━━━━━━━━━━━━\n'
+            f'⏱ Uptime: {horas}h {minutos}min\n'
+            f'🔍 Analisados: {self.jogos_analisados}\n'
+            f'✅ Aprovados: {self.jogos_aprovados}\n'
+            f'⛔ Reprovados: {reprovados}\n'
+            f'📋 Top motivos: {motivos_str}'
+        )
+
+stats = Estatisticas()
+
+
+# ============================================================
+# SAUDE E ALERTAS
+# ============================================================
+
+def verificar_telegram() -> bool:
+    try:
+        enviar_mensagem('🔧 _Verificação de saúde — Telegram OK_')
+        return True
+    except Exception as e:
+        log.error(f'Telegram não está funcionando: {e}')
+        return False
+
+
+def alerta_bot_caiu(motivo: str):
+    try:
+        enviar_mensagem(
+            f'🚨 *BOT PARADO*\n'
+            f'━━━━━━━━━━━━━━━━━━━━\n'
+            f'❌ Motivo: {motivo}\n'
+            f'🕐 Horário: {datetime.now(FUSO_BRASILIA).strftime("%H:%M:%S")}\n'
+            f'⚠️ _Reinicie o bot manualmente na VM._'
+        )
+    except:
+        pass
+
+
+# ============================================================
 # FUNCOES AUXILIARES
 # ============================================================
 
@@ -102,8 +205,7 @@ def utc_para_brasilia(open_date_str: str) -> str:
 def tempo_para_inicio(open_date_str: str) -> float:
     try:
         inicio = datetime.fromisoformat(open_date_str.replace('Z', '+00:00'))
-        diff = (inicio - datetime.now(timezone.utc)).total_seconds() / 60
-        return diff
+        return (inicio - datetime.now(timezone.utc)).total_seconds() / 60
     except:
         return 999
 
@@ -112,10 +214,8 @@ def buscar_todos_jogos_do_dia() -> list:
     agora_brasilia      = datetime.now(FUSO_BRASILIA)
     inicio_dia_brasilia = agora_brasilia.replace(hour=0, minute=0, second=0, microsecond=0)
     fim_dia_brasilia    = agora_brasilia.replace(hour=23, minute=59, second=59, microsecond=0)
-
     inicio_utc = inicio_dia_brasilia.astimezone(timezone.utc)
     fim_utc    = fim_dia_brasilia.astimezone(timezone.utc)
-
     rpc = json.dumps({
         'jsonrpc': '2.0', 'method': 'SportsAPING/v1.0/listEvents',
         'params': {'filter': {'eventTypeIds': ['1'],
@@ -143,7 +243,7 @@ def get_odd_back_runner(book_runners, runners_map, nome):
 
 
 # ============================================================
-# ANALISE PRINCIPAL — CHAMADA UNICA DE ODDS
+# ANALISE PRINCIPAL
 # ============================================================
 
 def analisar_jogo(event_id: str, nome_jogo: str, minutos: float) -> dict:
@@ -180,7 +280,6 @@ def analisar_jogo(event_id: str, nome_jogo: str, minutos: float) -> dict:
 
     resultado['competition'] = competition
 
-    # Chamada única de odds
     market_ids = [cs_mercado['marketId'], mo_mercado['marketId']]
     if over15_mercado:
         market_ids.append(over15_mercado['marketId'])
@@ -194,7 +293,6 @@ def analisar_jogo(event_id: str, nome_jogo: str, minutos: float) -> dict:
 
     books_por_id = {book['marketId']: book for book in todos_books}
 
-    # Correct Score
     book_cs = books_por_id.get(cs_mercado['marketId'])
     if not book_cs:
         resultado['motivo_reprovacao'].append('Sem dados CS')
@@ -229,7 +327,6 @@ def analisar_jogo(event_id: str, nome_jogo: str, minutos: float) -> dict:
     resultado['liquidez_cs']  = liquidez_cs
     resultado['market_id_cs'] = cs_mercado['marketId']
 
-    # Match Odds
     book_mo = books_por_id.get(mo_mercado['marketId'])
     if not book_mo:
         resultado['motivo_reprovacao'].append('Sem dados MO')
@@ -256,37 +353,29 @@ def analisar_jogo(event_id: str, nome_jogo: str, minutos: float) -> dict:
     resultado['favorito']     = nome_favorito
     resultado['odd_favorito'] = odd_favorito
 
-    # Over 1.5
     if over15_mercado:
         book_over15 = books_por_id.get(over15_mercado['marketId'])
         if book_over15:
             runners_over15_map = {r['selectionId']: r['runnerName'] for r in over15_mercado.get('runners', [])}
-            odd_over15         = get_odd_back_runner(book_over15.get('runners', []), runners_over15_map, 'Over 1.5 Goals')
-            if odd_over15:
-                resultado['odd_over15'] = odd_over15
-                if not (ODD_OVER15_MINIMA <= odd_over15 <= ODD_OVER15_MAXIMA):
-                    resultado['motivo_reprovacao'].append(f'Over 1.5 fora faixa: {odd_over15}')
-                    return resultado
-            else:
-                resultado['odd_over15'] = None
+            odd_over15 = get_odd_back_runner(book_over15.get('runners', []), runners_over15_map, 'Over 1.5 Goals')
+            resultado['odd_over15'] = odd_over15
+            if odd_over15 and not (ODD_OVER15_MINIMA <= odd_over15 <= ODD_OVER15_MAXIMA):
+                resultado['motivo_reprovacao'].append(f'Over 1.5 fora faixa: {odd_over15}')
+                return resultado
         else:
             resultado['odd_over15'] = None
     else:
         resultado['odd_over15'] = None
 
-    # BTTS
     if btts_mercado:
         book_btts = books_por_id.get(btts_mercado['marketId'])
         if book_btts:
             runners_btts_map = {r['selectionId']: r['runnerName'] for r in btts_mercado.get('runners', [])}
-            odd_btts         = get_odd_back_runner(book_btts.get('runners', []), runners_btts_map, 'Yes')
-            if odd_btts:
-                resultado['odd_btts'] = odd_btts
-                if not (ODD_BTTS_MINIMA <= odd_btts <= ODD_BTTS_MAXIMA):
-                    resultado['motivo_reprovacao'].append(f'BTTS fora faixa: {odd_btts}')
-                    return resultado
-            else:
-                resultado['odd_btts'] = None
+            odd_btts = get_odd_back_runner(book_btts.get('runners', []), runners_btts_map, 'Yes')
+            resultado['odd_btts'] = odd_btts
+            if odd_btts and not (ODD_BTTS_MINIMA <= odd_btts <= ODD_BTTS_MAXIMA):
+                resultado['motivo_reprovacao'].append(f'BTTS fora faixa: {odd_btts}')
+                return resultado
         else:
             resultado['odd_btts'] = None
     else:
@@ -305,7 +394,6 @@ def formatar_alerta(info: dict) -> str:
     btts_str   = f"Ambas Marcam @ *{info['odd_btts']:.2f}*" if info.get('odd_btts') else 'BTTS: N/A'
     minutos    = info['minutos']
     tempo_str  = f'⏰ *Inicia em:* {minutos} min' if minutos >= 0 else f'🔴 *Ao vivo:* {abs(minutos)} min de jogo'
-
     return (
         f'🚨 *PRE-LIVE ALERT*\n'
         f'━━━━━━━━━━━━━━━━━━━━\n'
@@ -331,7 +419,6 @@ def formatar_alerta(info: dict) -> str:
 def gerar_resumo_diario():
     aprovados = carregar_aprovados_do_dia()
     data_hoje = datetime.now(FUSO_BRASILIA).strftime('%d/%m/%Y')
-
     if not aprovados:
         enviar_mensagem(
             f'📋 *Resumo Diário — {data_hoje}*\n'
@@ -340,7 +427,6 @@ def gerar_resumo_diario():
             f'_Os alertas serão enviados conforme os jogos forem detectados._'
         )
         return
-
     lista = sorted(aprovados.values(), key=lambda x: x.get('horario', ''))
     linhas = [
         f'📋 *Resumo Diário — {data_hoje}* (Horário de Brasília)',
@@ -348,7 +434,6 @@ def gerar_resumo_diario():
         f'✅ Aprovados hoje: {len(lista)}',
         f'━━━━━━━━━━━━━━━━━━━━',
     ]
-
     for i, info in enumerate(lista, 1):
         over15_str = f"O1.5 @ {info['odd_over15']:.2f}" if info.get('odd_over15') else 'O1.5: N/A'
         btts_str   = f"BTTS @ {info['odd_btts']:.2f}"   if info.get('odd_btts')   else 'BTTS: N/A'
@@ -359,16 +444,12 @@ def gerar_resumo_diario():
             f'⭐ {info.get("favorito", "")} @ {info.get("odd_favorito", 0):.2f} | {over15_str} | {btts_str}',
             f'💧 CS: £{info.get("liquidez_cs", 0):,.0f}',
         ]
-
-    linhas += [
-        '\n━━━━━━━━━━━━━━━━━━━━',
-        '_Odds registradas no momento do alerta pré-jogo._',
-    ]
+    linhas += ['\n━━━━━━━━━━━━━━━━━━━━', '_Odds registradas no momento do alerta pré-jogo._']
     enviar_mensagem('\n'.join(linhas))
 
 
 # ============================================================
-# AGENDADOR DE JOGOS
+# AGENDADOR
 # ============================================================
 
 class AgendadorJogos:
@@ -376,9 +457,14 @@ class AgendadorJogos:
         self.jogos: dict = {}
 
     def carregar_jogos_do_dia(self):
-        print('Buscando lista de jogos do dia...')
+        log.info('Buscando lista de jogos do dia...')
         jogos_api    = buscar_todos_jogos_do_dia()
         ja_aprovados = set(carregar_aprovados_do_dia().keys())
+
+        if not jogos_api:
+            log.warning('Nenhum jogo retornado pela API Betfair!')
+            enviar_mensagem('⚠️ *Atenção* — Nenhum jogo encontrado na Betfair para hoje.\n_Pode ser erro de API ou dia sem jogos._')
+            return 0
 
         novos = 0
         for jogo in jogos_api:
@@ -386,25 +472,18 @@ class AgendadorJogos:
             event_id  = evento.get('id')
             nome_jogo = evento.get('name', '')
             open_date = evento.get('openDate', '')
-
             if not event_id or not open_date:
                 continue
-            if event_id in ja_aprovados:
+            if event_id in ja_aprovados or event_id in self.jogos:
                 continue
-            if event_id in self.jogos:
-                continue
-
             try:
                 inicio_utc = datetime.fromisoformat(open_date.replace('Z', '+00:00'))
                 proxima    = inicio_utc - timedelta(minutes=MINUTOS_ANTES_INICIO)
             except:
                 continue
-
-            # Ignora jogos cuja janela já passou completamente
             limite = inicio_utc + timedelta(minutes=MINUTOS_APOS_INICIO)
             if datetime.now(timezone.utc) > limite:
                 continue
-
             self.jogos[event_id] = {
                 'nome_jogo':           nome_jogo,
                 'open_date':           open_date,
@@ -413,93 +492,61 @@ class AgendadorJogos:
             }
             novos += 1
 
-        print(f'Jogos agendados: {novos} novos | Total ativo: {len(self.jogos)}')
+        log.info(f'Jogos agendados: {novos} novos | Total ativo: {len(self.jogos)}')
         return novos
 
     def jogos_para_verificar_agora(self) -> list:
         agora = datetime.now(timezone.utc)
-        return [
-            (eid, dados)
-            for eid, dados in self.jogos.items()
-            if dados['estado'] == 'aguardando'
-            and dados['proxima_verificacao'] <= agora
-        ]
+        return [(eid, d) for eid, d in self.jogos.items()
+                if d['estado'] == 'aguardando' and d['proxima_verificacao'] <= agora]
 
     def avancar_verificacao(self, event_id: str):
         dados = self.jogos[event_id]
         agora = datetime.now(timezone.utc)
-
         try:
             inicio_utc = datetime.fromisoformat(dados['open_date'].replace('Z', '+00:00'))
         except:
             self._descartar(event_id, 'Erro ao parsear data')
             return
-
         limite  = inicio_utc + timedelta(minutes=MINUTOS_APOS_INICIO)
         proxima = agora + timedelta(minutes=INTERVALO_VERIFICACAO)
-
         if proxima > limite:
             self._descartar(event_id, f'Janela encerrada (+{MINUTOS_APOS_INICIO} min)')
         else:
             dados['proxima_verificacao'] = proxima
-            print(f'    → Próxima verificação: {proxima.astimezone(FUSO_BRASILIA).strftime("%H:%M")}')
+            log.info(f'    → Próxima: {proxima.astimezone(FUSO_BRASILIA).strftime("%H:%M")}')
 
     def marcar_aprovado(self, event_id: str):
         self.jogos[event_id]['estado'] = 'aprovado'
 
     def _descartar(self, event_id: str, motivo: str):
         self.jogos[event_id]['estado'] = 'descartado'
-        nome = self.jogos[event_id]['nome_jogo']
-        print(f'    ❌ Descartado: {nome} — {motivo}')
+        log.info(f'    ❌ Descartado: {self.jogos[event_id]["nome_jogo"]} — {motivo}')
 
     def limpar_encerrados(self):
         antes = len(self.jogos)
-        self.jogos = {
-            eid: d for eid, d in self.jogos.items()
-            if d['estado'] == 'aguardando'
-        }
+        self.jogos = {eid: d for eid, d in self.jogos.items() if d['estado'] == 'aguardando'}
         removidos = antes - len(self.jogos)
         if removidos:
-            print(f'  Agendador: {removidos} jogos removidos da fila')
+            log.info(f'  Agendador: {removidos} jogos removidos da fila')
 
     def status(self) -> str:
         aguardando = sum(1 for d in self.jogos.values() if d['estado'] == 'aguardando')
         return f'Fila: {aguardando} aguardando'
 
 
-# ============================================================
-# PRINT AGENDA DO DIA
-# ============================================================
-
 def imprimir_agenda_do_dia(agendador: AgendadorJogos):
-    """Imprime no terminal a lista de jogos agendados para o dia."""
-    jogos = sorted(
-        agendador.jogos.values(),
-        key=lambda x: x['open_date']
-    )
-
-    print('\n' + '=' * 55)
-    print(f'   AGENDA DO DIA — {datetime.now(FUSO_BRASILIA).strftime("%d/%m/%Y")}')
-    print(f'   Total: {len(jogos)} jogos agendados')
-    print('=' * 55)
-
-    if not jogos:
-        print('  Nenhum jogo encontrado para hoje.')
-        print('=' * 55 + '\n')
-        return
-
+    jogos = sorted(agendador.jogos.values(), key=lambda x: x['open_date'])
+    log.info('=' * 55)
+    log.info(f'   AGENDA DO DIA — {datetime.now(FUSO_BRASILIA).strftime("%d/%m/%Y")} | {len(jogos)} jogos')
+    log.info('=' * 55)
     hora_atual = None
     for dados in jogos:
         horario = utc_para_brasilia(dados['open_date'])
-        hora    = horario[:2]
-
-        if hora != hora_atual:
-            hora_atual = hora
-            print(f'\n  {horario[:2]}h')
-
-        print(f'    {horario}  {dados["nome_jogo"]}')
-
-    print('\n' + '=' * 55 + '\n')
+        if horario[:2] != hora_atual:
+            hora_atual = horario[:2]
+            log.info(f'  {hora_atual}h')
+        log.info(f'    {horario}  {dados["nome_jogo"]}')
 
 
 # ============================================================
@@ -507,113 +554,93 @@ def imprimir_agenda_do_dia(agendador: AgendadorJogos):
 # ============================================================
 
 def rodar_bot():
-    print('=' * 55)
-    print('   BOT PRE-LIVE LAY 0x1 / 1x0  [MODO AGENDADO]')
-    print('=' * 55)
-    ligas_str = ', '.join(LIGAS_PERMITIDAS) if LIGAS_PERMITIDAS else 'TODAS'
-    print(f'  Ligas:         {ligas_str}')
-    print(f'  Janela:        -{MINUTOS_ANTES_INICIO} min até +{MINUTOS_APOS_INICIO} min')
-    print(f'  Intervalo:     a cada {INTERVALO_VERIFICACAO} min por jogo')
-    print(f'  Liquidez CS:   £{LIQUIDEZ_MINIMA_CS}')
-    print(f'  Odd 1-0:       {ODD_10_MINIMA} - {ODD_10_MAXIMA}')
-    print(f'  Odd 0-1:       {ODD_01_MINIMA} - {ODD_01_MAXIMA}')
-    print(f'  Favorito:      max {ODD_FAVORITO_MAX}')
-    print(f'  Over 1.5:      {ODD_OVER15_MINIMA} - {ODD_OVER15_MAXIMA}')
-    print(f'  BTTS:          {ODD_BTTS_MINIMA} - {ODD_BTTS_MAXIMA}')
-    print(f'  Fuso:          Brasília (UTC-3)')
-    print(f'  Dados:         {PASTA_DADOS}/')
-    print('=' * 55)
+    log.info('=' * 55)
+    log.info('   BOT PRE-LIVE LAY 0x1 / 1x0')
+    log.info('=' * 55)
 
     if not bf.login():
-        print('Falha no login.')
+        alerta_bot_caiu('Falha no login Betfair')
+        return
+
+    if not verificar_telegram():
+        log.error('Telegram não está respondendo. Verifique o token.')
         return
 
     agendador = AgendadorJogos()
     agendador.carregar_jogos_do_dia()
-
-    # Print da agenda do dia no terminal
     imprimir_agenda_do_dia(agendador)
 
     ligas_msg = '\n'.join(f'  • {l}' for l in LIGAS_PERMITIDAS) if LIGAS_PERMITIDAS else '  • Todas as ligas'
     enviar_mensagem(
         f'🤖 *Bot Pre-Live LAY 0x1/1x0 iniciado!*\n'
-        f'🏆 *Ligas monitoradas:* {ligas_msg}\n'
-        f'📅 *Jogos agendados hoje:* {len(agendador.jogos)}\n'
-        f'⏱ Verificação: {MINUTOS_ANTES_INICIO} min antes até {MINUTOS_APOS_INICIO} min após início\n\n'
-        f'_Carregando resumo do dia..._'
+        f'🏆 *Ligas:* {ligas_msg}\n'
+        f'📅 *Jogos hoje:* {len(agendador.jogos)}\n'
+        f'⏱ Janela: {MINUTOS_ANTES_INICIO} min antes até {MINUTOS_APOS_INICIO} min após início'
     )
     gerar_resumo_diario()
 
-    ultima_recarga          = datetime.now(timezone.utc)
-    INTERVALO_RECARGA_HORAS = 1
+    ultima_recarga = datetime.now(timezone.utc)
 
     while True:
         try:
-            agora_str = datetime.now(FUSO_BRASILIA).strftime('%H:%M:%S')
-            print(f'\n[{agora_str}] {agendador.status()}')
+            log.info(f'{agendador.status()} | ✅ {stats.jogos_aprovados} aprovados | 🔍 {stats.jogos_analisados} analisados')
 
-            # Recarrega lista de jogos do dia a cada hora
             agora_utc = datetime.now(timezone.utc)
             if (agora_utc - ultima_recarga).total_seconds() >= INTERVALO_RECARGA_HORAS * 3600:
                 novos = agendador.carregar_jogos_do_dia()
                 ultima_recarga = agora_utc
                 if novos > 0:
-                    print(f'  ↻ {novos} novos jogos adicionados à fila')
                     imprimir_agenda_do_dia(agendador)
 
-            # Verifica jogos cuja hora chegou
             para_verificar = agendador.jogos_para_verificar_agora()
 
             if not para_verificar:
-                proximas = [
-                    d['proxima_verificacao']
-                    for d in agendador.jogos.values()
-                    if d['estado'] == 'aguardando'
-                ]
+                proximas = [d['proxima_verificacao'] for d in agendador.jogos.values() if d['estado'] == 'aguardando']
                 if proximas:
                     prox   = min(proximas)
-                    espera = max(10, (prox - datetime.now(timezone.utc)).total_seconds())
-                    espera = min(espera, 300)
-                    print(f'  Próxima verificação: {prox.astimezone(FUSO_BRASILIA).strftime("%H:%M")} — aguardando {int(espera)}s')
+                    espera = max(10, min(300, (prox - datetime.now(timezone.utc)).total_seconds()))
+                    log.info(f'  Próxima: {prox.astimezone(FUSO_BRASILIA).strftime("%H:%M")} — aguardando {int(espera)}s')
                     time.sleep(espera)
                 else:
-                    print('  Nenhum jogo na fila. Aguardando 5 min...')
+                    log.info('  Sem jogos na fila. Aguardando 5 min...')
                     time.sleep(300)
                 continue
 
-            # Analisa cada jogo que chegou na hora
             for event_id, dados in para_verificar:
                 nome_jogo = dados['nome_jogo']
-                open_date = dados['open_date']
-                minutos   = tempo_para_inicio(open_date)
-                horario   = utc_para_brasilia(open_date)
+                minutos   = tempo_para_inicio(dados['open_date'])
+                horario   = utc_para_brasilia(dados['open_date'])
 
-                print(f'  🔍 Verificando: {nome_jogo} ({horario}) | {int(minutos):+d} min')
-
+                log.info(f'  🔍 {nome_jogo} ({horario}) | {int(minutos):+d} min')
                 info = analisar_jogo(event_id, nome_jogo, minutos)
 
                 if info['aprovado']:
                     info['horario'] = horario
-                    info['status']  = f'⏳ Em {int(minutos)} min' if minutos >= 0 else '🔴 Ao vivo'
-
-                    print(f'  ✅ APROVADO! 1-0@{info["odd_10"]:.2f} | 0-1@{info["odd_01"]:.2f} | Fav@{info["odd_favorito"]:.2f}')
+                    log.info(f'  ✅ APROVADO! 1-0@{info["odd_10"]:.2f} | 0-1@{info["odd_01"]:.2f} | Fav@{info["odd_favorito"]:.2f}')
                     enviar_mensagem(formatar_alerta(info))
                     salvar_aprovado(info)
                     agendador.marcar_aprovado(event_id)
-
+                    stats.registrar_aprovacao()
                 else:
-                    print(f'  ⛔ Reprovado: {" | ".join(info["motivo_reprovacao"])}')
+                    log.info(f'  ⛔ {" | ".join(info["motivo_reprovacao"])}')
                     agendador.avancar_verificacao(event_id)
+                    stats.registrar_reprovacao(info['motivo_reprovacao'])
 
             agendador.limpar_encerrados()
+            stats.registrar_sucesso()
 
         except KeyboardInterrupt:
-            print('\nBot encerrado.')
-            enviar_mensagem('🛑 *Bot Pre-Live encerrado.*')
+            log.info('Bot encerrado pelo usuário.')
+            enviar_mensagem(f'🛑 *Bot encerrado.*\n{stats.resumo_telegram()}')
             break
+
         except Exception as e:
-            print(f'Erro: {str(e)}')
-            time.sleep(15)
+            stats.registrar_erro()
+            log.error(f'Erro ({stats.erros_consecutivos}/{MAX_ERROS_CONSECUTIVOS}): {e}')
+            if stats.erros_consecutivos >= MAX_ERROS_CONSECUTIVOS:
+                alerta_bot_caiu(f'Muitos erros seguidos: {e}')
+                break
+            time.sleep(ESPERA_APOS_ERRO)
             bf.login()
 
 
