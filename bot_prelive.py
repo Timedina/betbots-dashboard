@@ -20,12 +20,14 @@ FUSO_BRASILIA = timezone(timedelta(hours=-3))
 # Agendamento
 MINUTOS_ANTES_INICIO    = 5
 MINUTOS_APOS_INICIO     = 10
-INTERVALO_VERIFICACAO   = 5
-INTERVALO_RECARGA_HORAS = 1  # ← agora configurável aqui
+INTERVALO_VERIFICACAO   = 5      # minutos na janela de entrada
+INTERVALO_LONGE         = 15     # minutos para jogos > 30 min antes
+LIMIAR_JANELA_ENTRADA   = 30     # minutos: abaixo disso usa intervalo curto
+INTERVALO_RECARGA_HORAS = 1
 
 # Filtros Correct Score
 ODD_10_MINIMA = 0
-ODD_10_MAXIMA = 22.o
+ODD_10_MAXIMA = 22.0
 ODD_01_MINIMA = 0
 ODD_01_MAXIMA = 22.0
 
@@ -43,6 +45,9 @@ ODD_BTTS_MAXIMA = 2.30
 # Reconexão automática
 MAX_ERROS_CONSECUTIVOS = 5
 ESPERA_APOS_ERRO       = 30
+
+# Tipos de mercado permitidos (melhoria #5)
+MARKET_TYPES_FILTRO = ['MATCH_ODDS', 'CORRECT_SCORE', 'OVER_UNDER_15', 'BOTH_TEAMS_TO_SCORE']
 
 # ============================================================
 # LIGAS PERMITIDAS
@@ -121,11 +126,13 @@ def salvar_aprovado(info: dict):
 
 class Estatisticas:
     def __init__(self):
-        self.jogos_analisados   = 0
-        self.jogos_aprovados    = 0
+        self.jogos_analisados    = 0
+        self.jogos_aprovados     = 0
+        self.jogos_pulados_cache = 0    # melhoria #1
+        self.chamadas_api        = 0    # rastrear economia de chamadas
         self.motivos_reprovacao: dict = {}
-        self.erros_consecutivos = 0
-        self.inicio_sessao      = datetime.now(FUSO_BRASILIA)
+        self.erros_consecutivos  = 0
+        self.inicio_sessao       = datetime.now(FUSO_BRASILIA)
 
     def registrar_reprovacao(self, motivos: list):
         self.jogos_analisados += 1
@@ -137,6 +144,12 @@ class Estatisticas:
         self.jogos_analisados  += 1
         self.jogos_aprovados   += 1
         self.erros_consecutivos = 0
+
+    def registrar_pulado(self):
+        self.jogos_pulados_cache += 1
+
+    def registrar_chamada_api(self, n: int = 1):
+        self.chamadas_api += n
 
     def registrar_erro(self):
         self.erros_consecutivos += 1
@@ -158,10 +171,44 @@ class Estatisticas:
             f'🔍 Analisados: {self.jogos_analisados}\n'
             f'✅ Aprovados: {self.jogos_aprovados}\n'
             f'⛔ Reprovados: {reprovados}\n'
+            f'⏭ Pulados (cache): {self.jogos_pulados_cache}\n'
+            f'📡 Chamadas API: {self.chamadas_api}\n'
             f'📋 Top motivos: {motivos_str}'
         )
 
 stats = Estatisticas()
+
+
+# ============================================================
+# CACHE DE JOGOS DESCARTAVEIS (Melhoria #1)
+# ============================================================
+
+# Motivos que não mudam com o tempo — inutile reanalizar
+MOTIVOS_PERMANENTES = {
+    'Liga nao permitida',
+    'Sem Correct Score',
+    'Sem Match Odds',
+}
+
+class CacheEventos:
+    """
+    Armazena event_ids que foram reprovados por motivos permanentes.
+    Esses jogos são pulados em todos os ciclos futuros do dia.
+    """
+    def __init__(self):
+        self._pulados: dict = {}  # event_id -> motivo
+
+    def deve_pular(self, event_id: str) -> bool:
+        return event_id in self._pulados
+
+    def registrar(self, event_id: str, motivo: str):
+        self._pulados[event_id] = motivo
+        log.debug(f'  Cache: {event_id} bloqueado — {motivo}')
+
+    def total(self) -> int:
+        return len(self._pulados)
+
+cache_eventos = CacheEventos()
 
 
 # ============================================================
@@ -225,6 +272,7 @@ def buscar_todos_jogos_do_dia() -> list:
             }}},
         'id': 1
     })
+    stats.registrar_chamada_api()
     return bf.chamar_api(rpc) or []
 
 
@@ -243,7 +291,85 @@ def get_odd_back_runner(book_runners, runners_map, nome):
 
 
 # ============================================================
-# ANALISE PRINCIPAL
+# MELHORIA #5: listar_mercados com filtro de marketType
+# ============================================================
+
+def listar_mercados_filtrado(event_id: str) -> list:
+    """
+    Chama listMarketCatalogue filtrando pelos tipos de mercado
+    que realmente usamos, evitando escanteios, cartões etc.
+    """
+    stats.registrar_chamada_api()
+    return bf.listar_mercados(event_id, market_types=MARKET_TYPES_FILTRO)
+
+
+# ============================================================
+# MELHORIA #3: verificacao em cascata — apenas Match Odds
+# ============================================================
+
+def verificar_favorito_rapido(event_id: str, mercados: list) -> tuple:
+    """
+    Verifica APENAS o Match Odds para checar o favorito.
+    Retorna (aprovado: bool, odd_favorito: float|None, nome_favorito: str|None, book_mo: dict|None)
+    """
+    mo_mercado = next((m for m in mercados if m['marketName'] == 'Match Odds'), None)
+    if not mo_mercado:
+        return False, None, None, None
+
+    stats.registrar_chamada_api()
+    books = bf.listar_odds([mo_mercado['marketId']], ['EX_BEST_OFFERS'])
+    if not books:
+        return False, None, None, None
+
+    book_mo         = books[0]
+    runners_mo_map  = {r['selectionId']: r['runnerName'] for r in mo_mercado.get('runners', [])}
+    runners_mo_book = book_mo.get('runners', [])
+
+    odd_favorito  = None
+    nome_favorito = None
+    for runner in runners_mo_book:
+        back   = bf.get_back(runner)
+        nome_r = runners_mo_map.get(runner['selectionId'], '')
+        if nome_r == 'The Draw':
+            continue
+        if back and (odd_favorito is None or back < odd_favorito):
+            odd_favorito  = back
+            nome_favorito = nome_r
+
+    if not odd_favorito or odd_favorito > ODD_FAVORITO_MAX:
+        return False, odd_favorito, nome_favorito, None
+
+    return True, odd_favorito, nome_favorito, book_mo
+
+
+# ============================================================
+# MELHORIA #2: batch de mercados restantes
+# ============================================================
+
+def buscar_mercados_restantes_batch(
+    cs_mercado: dict,
+    over15_mercado,
+    btts_mercado
+) -> dict:
+    """
+    Busca CS + Over1.5 + BTTS em uma única chamada batch.
+    Retorna dict {marketId: book}
+    """
+    ids = [cs_mercado['marketId']]
+    if over15_mercado:
+        ids.append(over15_mercado['marketId'])
+    if btts_mercado:
+        ids.append(btts_mercado['marketId'])
+
+    stats.registrar_chamada_api()
+    books = bf.listar_odds(ids, ['EX_BEST_OFFERS'])
+    if not books:
+        return {}
+    return {b['marketId']: b for b in books}
+
+
+# ============================================================
+# ANALISE PRINCIPAL (refatorada com melhorias #1, #2, #3, #5)
 # ============================================================
 
 def analisar_jogo(event_id: str, nome_jogo: str, minutos: float) -> dict:
@@ -255,7 +381,14 @@ def analisar_jogo(event_id: str, nome_jogo: str, minutos: float) -> dict:
         'event_id': event_id,
     }
 
-    mercados = bf.listar_mercados(event_id)
+    # Melhoria #1: checar cache antes de qualquer chamada de API
+    if cache_eventos.deve_pular(event_id):
+        resultado['motivo_reprovacao'].append('Cache: reprovado permanente')
+        stats.registrar_pulado()
+        return resultado
+
+    # Melhoria #5: busca mercados já filtrados por tipo
+    mercados = listar_mercados_filtrado(event_id)
     if not mercados:
         resultado['motivo_reprovacao'].append('Sem mercados')
         return resultado
@@ -267,33 +400,41 @@ def analisar_jogo(event_id: str, nome_jogo: str, minutos: float) -> dict:
 
     if not cs_mercado:
         resultado['motivo_reprovacao'].append('Sem Correct Score')
+        cache_eventos.registrar(event_id, 'Sem Correct Score')   # permanente
         return resultado
     if not mo_mercado:
         resultado['motivo_reprovacao'].append('Sem Match Odds')
+        cache_eventos.registrar(event_id, 'Sem Match Odds')       # permanente
         return resultado
 
     competition = cs_mercado.get('competition', {}).get('name', '')
     if LIGAS_PERMITIDAS:
         if not any(liga.lower() in competition.lower() for liga in LIGAS_PERMITIDAS):
-            resultado['motivo_reprovacao'].append(f'Liga nao permitida: {competition}')
+            motivo = f'Liga nao permitida: {competition}'
+            resultado['motivo_reprovacao'].append(motivo)
+            cache_eventos.registrar(event_id, motivo)              # permanente
             return resultado
 
     resultado['competition'] = competition
 
-    market_ids = [cs_mercado['marketId'], mo_mercado['marketId']]
-    if over15_mercado:
-        market_ids.append(over15_mercado['marketId'])
-    if btts_mercado:
-        market_ids.append(btts_mercado['marketId'])
-
-    todos_books = bf.listar_odds(market_ids, ['EX_BEST_OFFERS'])
-    if not todos_books:
-        resultado['motivo_reprovacao'].append('Sem dados de odds')
+    # Melhoria #3: filtro em cascata — verificar favorito ANTES de pedir CS/Over/BTTS
+    fav_ok, odd_favorito, nome_favorito, book_mo = verificar_favorito_rapido(event_id, mercados)
+    if not fav_ok:
+        resultado['motivo_reprovacao'].append(f'Favorito fora faixa: {odd_favorito}')
+        # NÃO adiciona ao cache permanente — odd do favorito muda com o tempo
         return resultado
 
-    books_por_id = {book['marketId']: book for book in todos_books}
+    resultado['favorito']     = nome_favorito
+    resultado['odd_favorito'] = odd_favorito
 
-    book_cs = books_por_id.get(cs_mercado['marketId'])
+    # Melhoria #2: buscar CS + Over1.5 + BTTS em uma única chamada batch
+    books_restantes = buscar_mercados_restantes_batch(cs_mercado, over15_mercado, btts_mercado)
+    if not books_restantes:
+        resultado['motivo_reprovacao'].append('Sem dados de odds (batch)')
+        return resultado
+
+    # ── Correct Score ──
+    book_cs = books_restantes.get(cs_mercado['marketId'])
     if not book_cs:
         resultado['motivo_reprovacao'].append('Sem dados CS')
         return resultado
@@ -327,34 +468,9 @@ def analisar_jogo(event_id: str, nome_jogo: str, minutos: float) -> dict:
     resultado['liquidez_cs']  = liquidez_cs
     resultado['market_id_cs'] = cs_mercado['marketId']
 
-    book_mo = books_por_id.get(mo_mercado['marketId'])
-    if not book_mo:
-        resultado['motivo_reprovacao'].append('Sem dados MO')
-        return resultado
-
-    runners_mo_map  = {r['selectionId']: r['runnerName'] for r in mo_mercado.get('runners', [])}
-    runners_mo_book = book_mo.get('runners', [])
-
-    odd_favorito  = None
-    nome_favorito = None
-    for runner in runners_mo_book:
-        back   = bf.get_back(runner)
-        nome_r = runners_mo_map.get(runner['selectionId'], '')
-        if nome_r == 'The Draw':
-            continue
-        if back and (odd_favorito is None or back < odd_favorito):
-            odd_favorito  = back
-            nome_favorito = nome_r
-
-    if not odd_favorito or odd_favorito > ODD_FAVORITO_MAX:
-        resultado['motivo_reprovacao'].append(f'Favorito fora faixa: {odd_favorito}')
-        return resultado
-
-    resultado['favorito']     = nome_favorito
-    resultado['odd_favorito'] = odd_favorito
-
+    # ── Over 1.5 ──
     if over15_mercado:
-        book_over15 = books_por_id.get(over15_mercado['marketId'])
+        book_over15 = books_restantes.get(over15_mercado['marketId'])
         if book_over15:
             runners_over15_map = {r['selectionId']: r['runnerName'] for r in over15_mercado.get('runners', [])}
             odd_over15 = get_odd_back_runner(book_over15.get('runners', []), runners_over15_map, 'Over 1.5 Goals')
@@ -367,8 +483,9 @@ def analisar_jogo(event_id: str, nome_jogo: str, minutos: float) -> dict:
     else:
         resultado['odd_over15'] = None
 
+    # ── BTTS ──
     if btts_mercado:
-        book_btts = books_por_id.get(btts_mercado['marketId'])
+        book_btts = books_restantes.get(btts_mercado['marketId'])
         if book_btts:
             runners_btts_map = {r['selectionId']: r['runnerName'] for r in btts_mercado.get('runners', [])}
             odd_btts = get_odd_back_runner(book_btts.get('runners', []), runners_btts_map, 'Yes')
@@ -501,20 +618,35 @@ class AgendadorJogos:
                 if d['estado'] == 'aguardando' and d['proxima_verificacao'] <= agora]
 
     def avancar_verificacao(self, event_id: str):
-        dados = self.jogos[event_id]
-        agora = datetime.now(timezone.utc)
+        """
+        Melhoria #4: intervalo dinâmico baseado no tempo até o início.
+        - Mais de LIMIAR_JANELA_ENTRADA min antes: checar a cada INTERVALO_LONGE min
+        - Dentro da janela de entrada: checar a cada INTERVALO_VERIFICACAO min
+        """
+        dados   = self.jogos[event_id]
+        agora   = datetime.now(timezone.utc)
+        minutos = tempo_para_inicio(dados['open_date'])
+
+        if minutos > LIMIAR_JANELA_ENTRADA:
+            intervalo = INTERVALO_LONGE
+        else:
+            intervalo = INTERVALO_VERIFICACAO
+
         try:
             inicio_utc = datetime.fromisoformat(dados['open_date'].replace('Z', '+00:00'))
         except:
             self._descartar(event_id, 'Erro ao parsear data')
             return
+
         limite  = inicio_utc + timedelta(minutes=MINUTOS_APOS_INICIO)
-        proxima = agora + timedelta(minutes=INTERVALO_VERIFICACAO)
+        proxima = agora + timedelta(minutes=intervalo)
+
         if proxima > limite:
             self._descartar(event_id, f'Janela encerrada (+{MINUTOS_APOS_INICIO} min)')
         else:
             dados['proxima_verificacao'] = proxima
-            log.info(f'    → Próxima: {proxima.astimezone(FUSO_BRASILIA).strftime("%H:%M")}')
+            log.info(f'    → Próxima: {proxima.astimezone(FUSO_BRASILIA).strftime("%H:%M")} '
+                     f'(intervalo {intervalo} min — {int(minutos)} min p/ início)')
 
     def marcar_aprovado(self, event_id: str):
         self.jogos[event_id]['estado'] = 'aprovado'
@@ -532,7 +664,7 @@ class AgendadorJogos:
 
     def status(self) -> str:
         aguardando = sum(1 for d in self.jogos.values() if d['estado'] == 'aguardando')
-        return f'Fila: {aguardando} aguardando'
+        return f'Fila: {aguardando} aguardando | Cache: {cache_eventos.total()} bloqueados'
 
 
 def imprimir_agenda_do_dia(agendador: AgendadorJogos):
@@ -575,7 +707,8 @@ def rodar_bot():
         f'🤖 *Bot Pre-Live LAY 0x1/1x0 iniciado!*\n'
         f'🏆 *Ligas:* {ligas_msg}\n'
         f'📅 *Jogos hoje:* {len(agendador.jogos)}\n'
-        f'⏱ Janela: {MINUTOS_ANTES_INICIO} min antes até {MINUTOS_APOS_INICIO} min após início'
+        f'⏱ Janela: {MINUTOS_ANTES_INICIO} min antes até {MINUTOS_APOS_INICIO} min após início\n'
+        f'🔄 Intervalo dinâmico: {INTERVALO_LONGE}min (longe) / {INTERVALO_VERIFICACAO}min (janela)'
     )
     gerar_resumo_diario()
 
@@ -583,7 +716,8 @@ def rodar_bot():
 
     while True:
         try:
-            log.info(f'{agendador.status()} | ✅ {stats.jogos_aprovados} aprovados | 🔍 {stats.jogos_analisados} analisados')
+            log.info(f'{agendador.status()} | ✅ {stats.jogos_aprovados} aprovados | '
+                     f'🔍 {stats.jogos_analisados} analisados | 📡 {stats.chamadas_api} chamadas API')
 
             agora_utc = datetime.now(timezone.utc)
             if (agora_utc - ultima_recarga).total_seconds() >= INTERVALO_RECARGA_HORAS * 3600:
@@ -622,9 +756,11 @@ def rodar_bot():
                     agendador.marcar_aprovado(event_id)
                     stats.registrar_aprovacao()
                 else:
-                    log.info(f'  ⛔ {" | ".join(info["motivo_reprovacao"])}')
-                    agendador.avancar_verificacao(event_id)
-                    stats.registrar_reprovacao(info['motivo_reprovacao'])
+                    motivos = info['motivo_reprovacao']
+                    log.info(f'  ⛔ {" | ".join(motivos)}')
+                    if not any('Cache' in m for m in motivos):
+                        agendador.avancar_verificacao(event_id)
+                    stats.registrar_reprovacao(motivos)
 
             agendador.limpar_encerrados()
             stats.registrar_sucesso()
