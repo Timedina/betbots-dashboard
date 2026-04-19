@@ -10,3 +10,7 @@ __pycache__/
 # Logs e Dados
 *.log
 data/
+.venv/
+dados_bot/
+*.bak
+*.save
