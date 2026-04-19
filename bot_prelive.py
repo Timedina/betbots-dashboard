@@ -183,7 +183,10 @@ def registrar_reprovacao_persistente(event_id: str, nome_jogo: str, competition:
 
 
 def resumo_reprovados_telegram():
-    """Envia um resumo analitico dos motivos de reprovacao do dia."""
+    """
+    Envia resumo analitico dos motivos de reprovacao do dia,
+    incluindo distribuicao das odds rejeitadas para calibrar filtros.
+    """
     reprovados = carregar_reprovados_do_dia()
     data_hoje  = datetime.now(FUSO_BRASILIA).strftime('%d/%m/%Y')
 
@@ -194,8 +197,16 @@ def resumo_reprovados_telegram():
         )
         return
 
+    # ── Contagem de motivos e coleta de valores para distribuição ──
     contagem: dict = {}
     total_tentativas = 0
+
+    # Distribuições de odds rejeitadas
+    dist_favorito  = []   # odds do favorito que foram rejeitadas
+    dist_over15    = []   # odds Over 1.5 rejeitadas
+    dist_btts      = []   # odds BTTS rejeitadas
+    dist_liq       = []   # liquidez disponivel rejeitada
+
     for dados in reprovados.values():
         for tent in dados['tentativas']:
             total_tentativas += 1
@@ -203,12 +214,27 @@ def resumo_reprovados_telegram():
                 chave = motivo.split(':')[0].strip()
                 contagem[chave] = contagem.get(chave, 0) + 1
 
+                # Extrair valor numérico do motivo para distribuição
+                try:
+                    valor_str = motivo.split(':')[1].strip().split()[0]
+                    valor = float(valor_str.replace('£', '').replace(',', ''))
+                    if 'Favorito fora faixa' in motivo:
+                        dist_favorito.append(valor)
+                    elif 'Over 1.5 fora faixa' in motivo:
+                        dist_over15.append(valor)
+                    elif 'BTTS fora faixa' in motivo:
+                        dist_btts.append(valor)
+                    elif 'Liquidez CS insuficiente' in motivo:
+                        dist_liq.append(valor)
+                except:
+                    pass
+
     top = sorted(contagem.items(), key=lambda x: x[1], reverse=True)[:8]
+
     linhas = [
         f'📋 *Reprovações do Dia — {data_hoje}*',
         f'━━━━━━━━━━━━━━━━━━━━',
-        f'🔍 Jogos únicos reprovados: {len(reprovados)}',
-        f'🔁 Total de tentativas: {total_tentativas}',
+        f'🔍 Jogos únicos: {len(reprovados)} | 🔁 Tentativas: {total_tentativas}',
         f'━━━━━━━━━━━━━━━━━━━━',
         f'*Top motivos:*',
     ]
@@ -216,10 +242,68 @@ def resumo_reprovados_telegram():
         barra = '\u2593' * min(10, n) + '\u2591' * max(0, 10 - n)
         linhas.append(f'`{barra}` {motivo}: *{n}x*')
 
-    linhas += [
-        f'━━━━━━━━━━━━━━━━━━━━',
-        f'_Arquivo: reprovados_{datetime.now(FUSO_BRASILIA).strftime("%Y-%m-%d")}.json_',
-    ]
+    # ── Distribuição do favorito ──
+    if dist_favorito:
+        linhas.append(f'\n━━━━━━━━━━━━━━━━━━━━')
+        linhas.append(f'📊 *Distribuição — Favorito rejeitado* (limite atual: {ODD_FAVORITO_MAX})')
+        faixas = [
+            (0,    2.0,  'abaixo 2.0 (passou)'),
+            (2.0,  2.1,  '2.00–2.10'),
+            (2.1,  2.2,  '2.10–2.20'),
+            (2.2,  2.5,  '2.20–2.50'),
+            (2.5,  3.0,  '2.50–3.00'),
+            (3.0,  99.0, 'acima 3.00'),
+        ]
+        for lo, hi, label in faixas:
+            n = sum(1 for v in dist_favorito if lo <= v < hi)
+            if n > 0:
+                linhas.append(f'  `{label}`: {n}x')
+
+    # ── Distribuição Over 1.5 ──
+    if dist_over15:
+        linhas.append(f'\n📊 *Distribuição — Over 1.5 rejeitado* (faixa atual: {ODD_OVER15_MINIMA}–{ODD_OVER15_MAXIMA})')
+        faixas = [
+            (0,    1.15, 'abaixo 1.15'),
+            (1.15, 1.35, '1.15–1.35 (passou)'),
+            (1.35, 1.50, '1.35–1.50'),
+            (1.50, 1.75, '1.50–1.75'),
+            (1.75, 99.0, 'acima 1.75'),
+        ]
+        for lo, hi, label in faixas:
+            n = sum(1 for v in dist_over15 if lo <= v < hi)
+            if n > 0:
+                linhas.append(f'  `{label}`: {n}x')
+
+    # ── Distribuição BTTS ──
+    if dist_btts:
+        linhas.append(f'\n📊 *Distribuição — BTTS rejeitado* (faixa atual: {ODD_BTTS_MINIMA}–{ODD_BTTS_MAXIMA})')
+        faixas = [
+            (0,    1.55, 'abaixo 1.55'),
+            (1.55, 2.30, '1.55–2.30 (passou)'),
+            (2.30, 2.60, '2.30–2.60'),
+            (2.60, 99.0, 'acima 2.60'),
+        ]
+        for lo, hi, label in faixas:
+            n = sum(1 for v in dist_btts if lo <= v < hi)
+            if n > 0:
+                linhas.append(f'  `{label}`: {n}x')
+
+    # ── Distribuição Liquidez ──
+    if dist_liq:
+        linhas.append(f'\n📊 *Distribuição — Liquidez CS rejeitada* (mín atual: £{LIQUIDEZ_MINIMA_CS_DISPONIVEL})')
+        faixas = [
+            (0,   50,  '£0–50'),
+            (50,  100, '£50–100'),
+            (100, 150, '£100–150'),
+            (150, 300, '£150–300 (passaria)'),
+        ]
+        for lo, hi, label in faixas:
+            n = sum(1 for v in dist_liq if lo <= v < hi)
+            if n > 0:
+                linhas.append(f'  `{label}`: {n}x')
+
+    linhas.append(f'\n━━━━━━━━━━━━━━━━━━━━')
+    linhas.append(f'_Use estes dados para ajustar os filtros no topo do bot._')
     enviar_mensagem('\n'.join(linhas))
 
 
