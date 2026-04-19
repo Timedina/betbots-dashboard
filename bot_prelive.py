@@ -176,8 +176,10 @@ def registrar_reprovacao_persistente(event_id: str, nome_jogo: str, competition:
     try:
         with open(arquivo_reprovados_do_dia(), 'w', encoding='utf-8') as f:
             json.dump(reprovados, f, ensure_ascii=False, indent=2)
+        log.info(f'  📝 Reprovacao salva: {nome_jogo} | {motivos}')
     except Exception as e:
         log.warning(f'Erro ao salvar reprovado: {e}')
+        log.warning(f'  Caminho: {arquivo_reprovados_do_dia()}')
 
 
 def resumo_reprovados_telegram():
@@ -1041,7 +1043,8 @@ def rodar_bot():
     )
     gerar_resumo_diario()
 
-    ultima_recarga = datetime.now(timezone.utc)
+    ultima_recarga        = datetime.now(timezone.utc)
+    ultimo_resumo_noturno = None   # controla envio do resumo das 23h
 
     while True:
         try:
@@ -1054,6 +1057,15 @@ def rodar_bot():
                 ultima_recarga = agora_utc
                 if novos > 0:
                     imprimir_agenda_do_dia(agendador)
+
+            # Resumo noturno automático às 23h (horário de Brasília)
+            agora_br   = datetime.now(FUSO_BRASILIA)
+            data_hoje  = agora_br.strftime('%Y-%m-%d')
+            hora_atual = agora_br.hour
+            if hora_atual >= 23 and ultimo_resumo_noturno != data_hoje:
+                ultimo_resumo_noturno = data_hoje
+                log.info('  📋 Enviando resumo noturno de reprovações...')
+                resumo_reprovados_telegram()
 
             # Melhoria A + B: rodar monitores a cada ciclo
             if monitor_odds.total() > 0:
