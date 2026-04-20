@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bot Betfair — Dashboard</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Syne:wght@400;700;800&display=swap');
+  :root {
+    --bg:#0a0a0f;--bg2:#111118;--bg3:#1a1a24;--border:#2a2a3a;
+    --green:#00ff88;--green-dim:rgba(0,255,136,0.12);
+    --red:#ff4466;--red-dim:rgba(255,68,102,0.12);
+    --yellow:#ffcc00;--yellow-dim:rgba(255,204,0,0.12);
+    --blue:#4488ff;--blue-dim:rgba(68,136,255,0.10);
+    --text:#e8e8f0;--text-dim:#7070a0;
+    --font-mono:'JetBrains Mono',monospace;
+    --font-display:'Syne',sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:var(--bg);color:var(--text);font-family:var(--font-mono);min-height:100vh;overflow-x:hidden;}
+  body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(68,136,255,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(68,136,255,0.03) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0;}
+  .container{position:relative;z-index:1;max-width:480px;margin:0 auto;padding:16px;}
+  .header{display:flex;align-items:center;justify-content:space-between;padding:16px 0 24px;border-bottom:1px solid var(--border);margin-bottom:20px;}
+  .logo{font-family:var(--font-display);font-size:20px;font-weight:800;letter-spacing:-0.5px;}
+  .logo span{color:var(--green);}
+  .status-pill{display:flex;align-items:center;gap:6px;background:var(--green-dim);border:1px solid rgba(0,255,136,0.3);border-radius:20px;padding:4px 12px;font-size:11px;color:var(--green);font-weight:600;}
+  .status-pill.offline{background:var(--red-dim);border-color:rgba(255,68,102,0.3);color:var(--red);}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 2s infinite;}
+  .dot.offline{background:var(--red);animation:none;}
+  @keyframes pulse{0%,100%{opacity:1;transform:scale(1);}50%{opacity:0.4;transform:scale(0.8);}}
+  .card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px;position:relative;overflow:hidden;animation:fadeIn 0.4s ease both;}
+  .card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--blue),transparent);}
+  .card.green::before{background:linear-gradient(90deg,var(--green),transparent);}
+  .card.red::before{background:linear-gradient(90deg,var(--red),transparent);}
+  .card.yellow::before{background:linear-gradient(90deg,var(--yellow),transparent);}
+  .card-title{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:2px;margin-bottom:12px;}
+  .stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:4px;}
+  .stat{background:var(--bg3);border-radius:8px;padding:12px;border:1px solid var(--border);}
+  .stat-label{font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;}
+  .stat-value{font-family:var(--font-display);font-size:24px;font-weight:800;line-height:1;}
+  .stat-value.green{color:var(--green);}.stat-value.red{color:var(--red);}.stat-value.yellow{color:var(--yellow);}.stat-value.blue{color:var(--blue);}
+  .stat-sub{font-size:10px;color:var(--text-dim);margin-top:4px;}
+  .jogo-item{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px;}
+  .jogo-item.aprovado{border-color:rgba(0,255,136,0.25);background:linear-gradient(135deg,var(--bg3),rgba(0,255,136,0.04));}
+  .jogo-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;}
+  .jogo-nome{font-size:13px;font-weight:600;color:var(--text);flex:1;margin-right:8px;}
+  .jogo-hora{font-size:11px;color:var(--yellow);background:var(--yellow-dim);padding:2px 8px;border-radius:4px;white-space:nowrap;}
+  .jogo-liga{font-size:10px;color:var(--text-dim);margin-bottom:8px;}
+  .odds-row{display:flex;gap:6px;flex-wrap:wrap;}
+  .odd-badge{font-size:10px;padding:3px 8px;border-radius:4px;font-weight:600;}
+  .odd-badge.lay{background:var(--red-dim);color:var(--red);border:1px solid rgba(255,68,102,0.3);}
+  .odd-badge.info{background:var(--blue-dim);color:var(--blue);border:1px solid rgba(68,136,255,0.2);}
+  .odd-badge.green{background:var(--green-dim);color:var(--green);border:1px solid rgba(0,255,136,0.2);}
+  .progress-wrap{background:var(--bg3);border-radius:4px;height:6px;overflow:hidden;margin-top:8px;}
+  .progress-bar{height:100%;border-radius:4px;background:linear-gradient(90deg,var(--green),var(--blue));transition:width 0.5s ease;}
+  .log-box{background:#070710;border:1px solid var(--border);border-radius:8px;padding:12px;font-size:11px;line-height:1.8;max-height:200px;overflow-y:auto;}
+  .log-line{display:flex;gap:8px;}
+  .log-time{color:var(--text-dim);flex-shrink:0;}
+  .log-msg.ok{color:var(--green);}.log-msg.err{color:var(--red);}.log-msg.info{color:var(--text-dim);}.log-msg.warn{color:var(--yellow);}
+  .btn-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;}
+  .btn{padding:10px;border-radius:8px;font-family:var(--font-mono);font-size:11px;font-weight:700;cursor:pointer;border:none;text-transform:uppercase;letter-spacing:1px;transition:all 0.15s;text-align:center;}
+  .btn:active{transform:scale(0.97);}
+  .btn-green{background:var(--green-dim);color:var(--green);border:1px solid rgba(0,255,136,0.3);}
+  .btn-red{background:var(--red-dim);color:var(--red);border:1px solid rgba(255,68,102,0.3);}
+  .btn-blue{background:var(--blue-dim);color:var(--blue);border:1px solid rgba(68,136,255,0.3);}
+  .update-time{text-align:center;font-size:10px;color:var(--text-dim);padding:16px 0 8px;letter-spacing:1px;}
+  .loading{text-align:center;color:var(--text-dim);padding:20px;font-size:12px;}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+  ::-webkit-scrollbar{width:4px;}::-webkit-scrollbar-track{background:var(--bg);}::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px;}
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <div class="logo">BOT<span>.</span>BETFAIR</div>
+    <div class="status-pill" id="statusPill">
+      <div class="dot" id="statusDot"></div>
+      <span id="statusText">CONECTANDO...</span>
+    </div>
+  </div>
+
+  <div class="card green">
+    <div class="card-title">📊 Resumo do Dia — <span id="dataHoje">--/--/----</span></div>
+    <div class="stats-grid">
+      <div class="stat">
+        <div class="stat-label">Aprovados</div>
+        <div class="stat-value green" id="totalAprovados">--</div>
+        <div class="stat-sub">jogos hoje</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Analisados</div>
+        <div class="stat-value blue" id="totalAnalisados">--</div>
+        <div class="stat-sub">verificações</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Na Fila</div>
+        <div class="stat-value yellow" id="totalFila">--</div>
+        <div class="stat-sub">aguardando</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Uptime</div>
+        <div class="stat-value" id="uptime" style="font-size:18px">--:--</div>
+        <div class="stat-sub">horas:min</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card yellow">
+    <div class="card-title">⏱ Próxima Verificação</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+      <div>
+        <div style="font-size:18px;font-family:var(--font-display);font-weight:800;color:var(--yellow)" id="proximoJogo">Carregando...</div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:2px" id="proximoHora">--:--</div>
+      </div>
+      <div style="font-size:28px;font-family:var(--font-display);font-weight:800;color:var(--yellow)" id="countdown">--</div>
+    </div>
+    <div class="progress-wrap"><div class="progress-bar" id="progressBar" style="width:0%"></div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">✅ Jogos Aprovados Hoje</div>
+    <div id="jogosLista"><div class="loading">Carregando...</div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">📋 Log Recente</div>
+    <div class="log-box" id="logBox">
+      <div class="log-line"><span class="log-time">--:--:--</span><span class="log-msg info">Conectando à API...</span></div>
+    </div>
+  </div>
+
+  <div class="btn-row">
+    <button class="btn btn-green" onclick="atualizar()">↻ Atualizar</button>
+    <button class="btn btn-blue" onclick="abrirConfig()">⚙️ Config</button>
+  </div>
+
+  <div class="update-time" id="updateTime">Aguardando dados...</div>
+</div>
+
+<script>
+// ============================================================
+// CONFIGURAÇÃO — altere o IP para o IP da sua VM
+// ============================================================
+let API_URL = localStorage.getItem('api_url') || '';
+
+function getApiUrl() {
+  return API_URL ? `http://${API_URL}:5000` : null;
+}
+
+// ============================================================
+// RENDERIZAÇÃO
+// ============================================================
+function renderDados(data) {
+  // Status
+  const online = data.status === 'online';
+  document.getElementById('statusPill').className = 'status-pill' + (online ? '' : ' offline');
+  document.getElementById('statusDot').className  = 'dot' + (online ? '' : ' offline');
+  document.getElementById('statusText').textContent = online ? 'ONLINE' : 'OFFLINE';
+
+  document.getElementById('dataHoje').textContent       = data.data_hoje || '--/--/----';
+  document.getElementById('totalAprovados').textContent = data.aprovados.length;
+  document.getElementById('totalAnalisados').textContent = data.analisados;
+  document.getElementById('totalFila').textContent      = data.fila;
+
+  const h = Math.floor(data.uptime_min / 60);
+  const m = data.uptime_min % 60;
+  document.getElementById('uptime').textContent = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+
+  if (data.proximo) {
+    document.getElementById('proximoJogo').textContent = data.proximo.nome || 'Aguardando...';
+    document.getElementById('proximoHora').textContent = data.proximo.hora ? `Início: ${data.proximo.hora}` : '';
+    const mins = parseInt(data.proximo.minutos) || 0;
+    document.getElementById('countdown').textContent = mins > 0 ? `${mins}m` : '--';
+    const pct = Math.max(0, Math.min(100, (1 - mins/30) * 100));
+    document.getElementById('progressBar').style.width = pct + '%';
+  } else {
+    document.getElementById('proximoJogo').textContent = 'Sem jogos na fila';
+    document.getElementById('countdown').textContent = '--';
+  }
+
+  // Jogos
+  const lista = document.getElementById('jogosLista');
+  if (!data.aprovados || data.aprovados.length === 0) {
+    lista.innerHTML = `<div style="text-align:center;color:var(--text-dim);padding:20px;font-size:12px">Nenhum jogo aprovado ainda hoje</div>`;
+  } else {
+    lista.innerHTML = data.aprovados.map(j => `
+      <div class="jogo-item aprovado">
+        <div class="jogo-header">
+          <div class="jogo-nome">${j.nome_jogo}</div>
+          <div class="jogo-hora">${j.horario}</div>
+        </div>
+        <div class="jogo-liga">🏆 ${j.competition} · ${j.salvo_em}</div>
+        <div class="odds-row">
+          <span class="odd-badge lay">LAY 1-0 @ ${Number(j.odd_10).toFixed(2)}</span>
+          <span class="odd-badge lay">LAY 0-1 @ ${Number(j.odd_01).toFixed(2)}</span>
+          <span class="odd-badge green">⭐ ${j.favorito} @ ${Number(j.odd_favorito).toFixed(2)}</span>
+          ${j.odd_over15 ? `<span class="odd-badge info">O1.5 @ ${Number(j.odd_over15).toFixed(2)}</span>` : ''}
+          ${j.odd_btts   ? `<span class="odd-badge info">BTTS @ ${Number(j.odd_btts).toFixed(2)}</span>`   : ''}
+          <span class="odd-badge info">💧 £${Number(j.liquidez_cs).toLocaleString()}</span>
+        </div>
+      </div>`).join('');
+  }
+
+  // Logs
+  const logBox = document.getElementById('logBox');
+  if (data.logs && data.logs.length > 0) {
+    logBox.innerHTML = data.logs.map(l =>
+      `<div class="log-line"><span class="log-time">${l.time}</span><span class="log-msg ${l.tipo}">${l.msg}</span></div>`
+    ).join('');
+    logBox.scrollTop = logBox.scrollHeight;
+  }
+
+  document.getElementById('updateTime').textContent = `Atualizado: ${data.hora_atual || new Date().toLocaleTimeString('pt-BR')}`;
+}
+
+function mostrarErro() {
+  document.getElementById('statusPill').className = 'status-pill offline';
+  document.getElementById('statusDot').className  = 'dot offline';
+  document.getElementById('statusText').textContent = 'SEM CONEXÃO';
+  document.getElementById('updateTime').textContent = 'Falha ao conectar com a API';
+  document.getElementById('jogosLista').innerHTML = `<div style="text-align:center;color:var(--red);padding:20px;font-size:12px">⚠️ Sem conexão com o servidor<br><br>Configure o IP da VM abaixo</div>`;
+}
+
+async function atualizar() {
+  const url = getApiUrl();
+  if (!url) { pedirConfig(); return; }
+  try {
+    const r = await fetch(`${url}/api/status`, { signal: AbortSignal.timeout(8000) });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    renderDados(data);
+  } catch(e) {
+    mostrarErro();
+  }
+}
+
+function abrirConfig() {
+  const ip = prompt('Digite o IP da VM (ex: 35.247.226.41):', API_URL);
+  if (ip !== null) {
+    API_URL = ip.trim();
+    localStorage.setItem('api_url', API_URL);
+    atualizar();
+  }
+}
+
+function pedirConfig() {
+  const ip = prompt('Para conectar ao bot, informe o IP da VM:\n(ex: 35.247.226.41)', '');
+  if (ip) {
+    API_URL = ip.trim();
+    localStorage.setItem('api_url', API_URL);
+    atualizar();
+  }
+}
+
+// Inicializar
+if (!API_URL) {
+  mostrarErro();
+  setTimeout(pedirConfig, 500);
+} else {
+  atualizar();
+}
+
+// Auto-atualizar a cada 30 segundos
+setInterval(atualizar, 30000);
+</script>
+</body>
+</html>
