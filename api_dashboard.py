@@ -4,7 +4,11 @@ API do Dashboard — Bot Betfair
 Roda na VM e serve os dados reais do bot para o painel web
 """
 
+<<<<<<< HEAD
 import os 
+=======
+import os
+>>>>>>> 2db2c34 (add dashboard e api)
 import json
 import subprocess
 from datetime import datetime, timezone, timedelta
