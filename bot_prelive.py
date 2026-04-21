@@ -3,6 +3,11 @@ import time
 import json
 import logging
 import betfair_client as bf
+try:
+    import resultado_jogos
+    RESULTADO_DISPONIVEL = True
+except ImportError:
+    RESULTADO_DISPONIVEL = False
 from telegram_client import enviar_mensagem
 from datetime import datetime, timezone, timedelta
 
@@ -68,6 +73,7 @@ LIGAS_PERMITIDAS = []
 # PASTAS E LOGS
 # ============================================================
 PASTA_DADOS = 'dados_bot'
+HORA_RESUMO_RESULTADOS = 23  # Hora para enviar resumo de resultados
 PASTA_LOGS  = 'logs'
 os.makedirs(PASTA_DADOS, exist_ok=True)
 os.makedirs(PASTA_LOGS,  exist_ok=True)
@@ -737,7 +743,7 @@ def get_odd_back_runner(book_runners, runners_map, nome):
 
 def listar_mercados_filtrado(event_id: str) -> list:
     stats.registrar_chamada_api()
-    return bf.listar_mercados(event_id, market_types=MARKET_TYPES_FILTRO)
+    return bf.listar_mercados(event_id, tipos=MARKET_TYPES_FILTRO)
 
 
 def verificar_favorito_rapido(event_id: str, mercados: list) -> tuple:
