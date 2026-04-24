@@ -131,6 +131,7 @@ def salvar_aprovado(info: dict):
         'liquidez_disponivel': info.get('liquidez_disponivel', 0),
         'liquidez_total':      info.get('liquidez_total', 0),
         'market_id_cs':        info.get('market_id_cs', ''),
+        'runners_cs_map':      info.get('runners_cs_map', {}),
         'salvo_em':            datetime.now(FUSO_BRASILIA).strftime('%H:%M:%S'),
     }
     with open(arquivo_do_dia(), 'w', encoding='utf-8') as f:
@@ -894,6 +895,7 @@ def analisar_jogo(event_id: str, nome_jogo: str, minutos: float) -> dict:
     resultado['liquidez_disponivel'] = liquidez_disponivel
     resultado['liquidez_total']      = liquidez_total
     resultado['market_id_cs']        = cs_mercado['marketId']
+    resultado['runners_cs_map']      = {str(sid): nome for sid, nome in runners_cs_map.items()}
 
     if over15_mercado:
         book_over15 = books_restantes.get(over15_mercado['marketId'])
