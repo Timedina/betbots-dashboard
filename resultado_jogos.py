@@ -1,7 +1,7 @@
 """
 resultado_jogos.py
 Busca o resultado final dos jogos aprovados via Betfair API
-e atualiza o arquivo JSON com o placar real
+Logica: entra sempre no LAY com odd mais alta (mais improvavel)
 """
 
 import json
@@ -69,7 +69,7 @@ def buscar_resultado_mercado(market_id: str) -> dict:
         for r in book.get('runners', []):
             if r.get('status') == 'WINNER':
                 runner_id = r.get('selectionId')
-                placar    = CS_MAP.get(runner_id, f'ID:{runner_id}')
+                placar    = CS_MAP.get(runner_id, 'ID:' + str(runner_id))
                 return {'status': 'encerrado', 'runner_id': runner_id, 'placar': placar}
         return {'status': 'encerrado_sem_vencedor', 'placar': None, 'runner_id': None}
 
@@ -80,35 +80,50 @@ def buscar_resultado_mercado(market_id: str) -> dict:
 
 
 def determinar_resultado_lay(placar_final: str, info_jogo: dict) -> dict:
+    """
+    Logica correta:
+    - Entra sempre no LAY com odd MAIS ALTA (mais improvavel)
+    - Se odd_10 > odd_01 → LAY 1-0
+    - Se odd_01 > odd_10 → LAY 0-1
+    - Ganha se o jogo NAO terminar nesse placar
+    - Perde se terminar exatamente nesse placar
+    """
     resultado = {
-        'placar_final': placar_final,
-        'lay_10': None, 'lay_01': None,
-        'resultado_geral': None, 'pnl_estimado': None,
+        'placar_final':    placar_final,
+        'placar_lay':      None,
+        'odd_lay':         None,
+        'resultado_geral': None,
+        'pnl_estimado':    None,
     }
 
     if not placar_final:
         return resultado
 
-    placar   = placar_final.replace(' ', '')
-    odd_10   = float(info_jogo.get('odd_10') or 0)
-    odd_01   = float(info_jogo.get('odd_01') or 0)
-    stake    = 10
+    odd_10 = float(info_jogo.get('odd_10') or 0)
+    odd_01 = float(info_jogo.get('odd_01') or 0)
+    stake  = 10
     comissao = 0.05
 
-    if placar == '1-0':
-        resultado['lay_10'] = 'PERDA'
-        resultado['lay_01'] = 'GANHO'
-        pnl = -stake * (odd_10 - 1) + stake * (1 - comissao)
-        resultado['resultado_geral'] = 'PERDA PARCIAL'
-    elif placar == '0-1':
-        resultado['lay_10'] = 'GANHO'
-        resultado['lay_01'] = 'PERDA'
-        pnl = stake * (1 - comissao) - stake * (odd_01 - 1)
-        resultado['resultado_geral'] = 'PERDA PARCIAL'
+    # Determina qual LAY entrou (odd mais alta)
+    if odd_10 >= odd_01:
+        placar_lay = '1-0'
+        odd_lay    = odd_10
     else:
-        resultado['lay_10'] = 'GANHO'
-        resultado['lay_01'] = 'GANHO'
-        pnl = stake * (1 - comissao) * 2
+        placar_lay = '0-1'
+        odd_lay    = odd_01
+
+    resultado['placar_lay'] = placar_lay
+    resultado['odd_lay']    = odd_lay
+
+    placar = placar_final.replace(' ', '')
+
+    if placar == placar_lay:
+        # Terminou exatamente no placar do LAY — PERDA
+        pnl = -stake * (odd_lay - 1)
+        resultado['resultado_geral'] = 'PERDA'
+    else:
+        # Terminou diferente — GANHO
+        pnl = stake * (1 - comissao)
         resultado['resultado_geral'] = 'VITORIA'
 
     resultado['pnl_estimado'] = round(pnl, 2)
@@ -141,15 +156,15 @@ def atualizar_resultados_do_dia(data_str=None, verbose=True):
 
         if res['status'] not in ('encerrado', 'encerrado_sem_vencedor'):
             if verbose:
-                print('    Status: ' + res['status'] + ' - jogo ainda nao encerrado')
+                print('    Status: ' + res['status'] + ' - ainda nao encerrado')
             continue
 
         placar_final  = res.get('placar')
         resultado_lay = determinar_resultado_lay(placar_final, info)
 
         info['placar_final']     = placar_final or 'Indisponivel'
-        info['lay_10_resultado'] = resultado_lay['lay_10']
-        info['lay_01_resultado'] = resultado_lay['lay_01']
+        info['placar_lay']       = resultado_lay['placar_lay']
+        info['odd_lay']          = resultado_lay['odd_lay']
         info['resultado_geral']  = resultado_lay['resultado_geral']
         info['pnl_estimado']     = resultado_lay['pnl_estimado']
         info['resultado_em']     = datetime.now(FUSO_BRASILIA).strftime('%H:%M:%S')
@@ -158,8 +173,12 @@ def atualizar_resultados_do_dia(data_str=None, verbose=True):
         if verbose:
             pnl_val = resultado_lay.get('pnl_estimado') or 0
             result  = resultado_lay.get('resultado_geral') or 'Pendente'
-            emoji   = '✅' if result == 'VITORIA' else '⚠️'
-            print('    ' + emoji + ' Placar: ' + str(placar_final) + ' | ' + result + ' | PnL: ' + str(pnl_val))
+            emoji   = '✅' if result == 'VITORIA' else '❌'
+            odd_lay = resultado_lay.get('odd_lay') or 0
+            placar_lay = resultado_lay.get('placar_lay') or ''
+            print('    ' + emoji + ' Placar: ' + str(placar_final) +
+                  ' | LAY ' + placar_lay + ' @ ' + str(odd_lay) +
+                  ' | ' + result + ' | PnL: ' + str(pnl_val) + 'u')
 
     if atualizados > 0:
         salvar_aprovados(aprovados, data_str)
@@ -184,27 +203,30 @@ def resumo_resultados(data_str=None) -> str:
     linhas = ['📊 *Resultados — ' + data + '*', '━━━━━━━━━━━━━━━━━━━━']
 
     for info in sorted(aprovados.values(), key=lambda x: x.get('horario', '')):
-        nome    = info.get('nome_jogo', '')
-        horario = info.get('horario', '--:--')
-        placar  = info.get('placar_final', '')
-        result  = info.get('resultado_geral', '')
-        pnl     = info.get('pnl_estimado', 0) or 0
+        nome       = info.get('nome_jogo', '')
+        horario    = info.get('horario', '--:--')
+        placar     = info.get('placar_final', '')
+        placar_lay = info.get('placar_lay', '')
+        odd_lay    = info.get('odd_lay', 0)
+        result     = info.get('resultado_geral', '')
+        pnl        = info.get('pnl_estimado', 0) or 0
 
         if result == 'VITORIA':
             emoji = '✅'; vitorias += 1; pnl_total += pnl
-        elif result == 'PERDA PARCIAL':
-            emoji = '⚠️'; derrotas += 1; pnl_total += pnl
+        elif result == 'PERDA':
+            emoji = '❌'; derrotas += 1; pnl_total += pnl
         else:
             emoji = '⏳'; pendentes += 1
 
+        lay_str    = ' LAY ' + str(placar_lay) + ' @' + str(odd_lay) if placar_lay else ''
         placar_str = ' | ' + placar if placar and placar != 'Indisponivel' else ''
-        pnl_str    = ' | PnL: ' + str(pnl) + 'u' if result else ''
-        linhas.append(emoji + ' ' + horario + ' ' + nome + placar_str + pnl_str)
+        pnl_str    = ' | PnL: ' + ('+' if pnl >= 0 else '') + str(pnl) + 'u' if result else ''
+        linhas.append(emoji + ' ' + horario + ' ' + nome + lay_str + placar_str + pnl_str)
 
     linhas += [
         '━━━━━━━━━━━━━━━━━━━━',
-        '✅ Vitorias: ' + str(vitorias) + ' | ⚠️ Perdas: ' + str(derrotas) + ' | ⏳ Pendentes: ' + str(pendentes),
-        '💰 PnL Total: ' + str(round(pnl_total, 1)) + ' unidades (stake 10/LAY)',
+        '✅ Vitorias: ' + str(vitorias) + ' | ❌ Perdas: ' + str(derrotas) + ' | ⏳ Pendentes: ' + str(pendentes),
+        '💰 PnL Total: ' + ('+' if pnl_total >= 0 else '') + str(round(pnl_total, 1)) + ' unidades (stake 10/LAY)',
     ]
     return '\n'.join(linhas)
 
