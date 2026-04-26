@@ -183,6 +183,20 @@ def processar_comandos(agendador, stats, resultado_jogos, carregar_aprovados_do_
                     linhas.append(f'  • {motivo}: *{n}x*')
                 responder(chat_id, '\n'.join(linhas))
 
+        # ── /odds ────────────────────────────────────────────────
+        elif texto.startswith('/odds'):
+            partes = texto.replace('/odds', '').strip()
+            if not partes:
+                responder(chat_id, '/odds Rangers Torino\n_Separe os times por espaco_')
+            else:
+                times = [t.strip() for t in partes.split() if t.strip()]
+                responder(chat_id, 'Buscando odds para: ' + ', '.join(times) + '...')
+                try:
+                    resultado = buscar_odds_por_times(times)
+                    responder(chat_id, resultado)
+                except Exception as e:
+                    responder(chat_id, 'Erro: ' + str(e))
+
         # ── comando desconhecido ──────────────────────────────────
         elif texto.startswith('/'):
             responder(chat_id,
@@ -192,5 +206,83 @@ def processar_comandos(agendador, stats, resultado_jogos, carregar_aprovados_do_
                 '/status — status e uptime do bot\n'
                 '/aprovados — jogos aprovados hoje\n'
                 '/filtros — filtros ativos\n'
-                '/reprovados — motivos de reprovação'
+                '/reprovados — motivos de reprovação\n'
+                '/odds [times] — odds LAY dos times'
             )
+
+
+def buscar_odds_por_times(nomes_times: list) -> str:
+    import betfair_client as bf
+    import json
+
+    # Busca mercados CS do dia e amanha
+    rpc = json.dumps({
+        'jsonrpc': '2.0',
+        'method': 'SportsAPING/v1.0/listMarketCatalogue',
+        'params': {
+            'filter': {
+                'eventTypeIds': ['1'],
+                'marketTypeCodes': ['CORRECT_SCORE'],
+            },
+            'maxResults': '1000',
+            'marketProjection': ['EVENT', 'MARKET_START_TIME'],
+        },
+        'id': 1
+    })
+
+    mercados = bf.chamar_api(rpc) or []
+
+    # Filtra jogos que contem algum dos times
+    encontrados = {}
+    for m in mercados:
+        nome_jogo = m.get('event', {}).get('name', '')
+        if any(t.lower() in nome_jogo.lower() for t in nomes_times):
+            encontrados[m['marketId']] = {
+                'nome': nome_jogo,
+                'horario': m.get('marketStartTime', ''),
+            }
+
+    if not encontrados:
+        return '❌ Nenhum jogo encontrado para: ' + ', '.join(nomes_times)
+
+    # Busca odds
+    books = bf.listar_odds(list(encontrados.keys()), ['EX_BEST_OFFERS'])
+
+    linhas = ['📊 *Odds LAY — Correct Score*', '━━━━━━━━━━━━━━━━━━━━']
+
+    for book in books:
+        mid     = book['marketId']
+        runners = book.get('runners', [])
+        info    = encontrados.get(mid, {})
+        nome    = info.get('nome', mid)
+
+        try:
+            from datetime import datetime, timezone, timedelta
+            fuso    = timezone(timedelta(hours=-3))
+            dt      = datetime.fromisoformat(info['horario'].replace('Z', '+00:00'))
+            horario = dt.astimezone(fuso).strftime('%d/%m %H:%M')
+        except:
+            horario = '?'
+
+        odd_10 = None
+        odd_01 = None
+        for r in runners:
+            sid = r.get('selectionId')
+            if sid == 2: odd_10 = bf.get_lay(r)
+            if sid == 4: odd_01 = bf.get_lay(r)
+
+        linhas.append(f'\n⚽ *{nome}* — {horario}')
+
+        if odd_10 and odd_01:
+            melhor    = '1-0' if odd_10 >= odd_01 else '0-1'
+            melhor_odd = max(odd_10, odd_01)
+            ok_10  = '✅' if 10 <= (odd_10 or 0) <= 22 else '❌'
+            ok_01  = '✅' if 10 <= (odd_01 or 0) <= 22 else '❌'
+            linhas.append(f'{ok_10} LAY 1-0 @ *{odd_10}*')
+            linhas.append(f'{ok_01} LAY 0-1 @ *{odd_01}*')
+            linhas.append(f'🎯 Entrar: LAY *{melhor}* @ *{melhor_odd}*')
+        else:
+            linhas.append('⏳ Odds ainda não disponíveis')
+
+    linhas.append('\n✅ = dentro do filtro (10-22) | ❌ = fora')
+    return '\n'.join(linhas)
