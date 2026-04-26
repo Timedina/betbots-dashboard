@@ -6,11 +6,14 @@ import betfair_client as bf
 try:
     import resultado_jogos
     import telegram_commands
+    import apostas
+    APOSTAS_DISPONIVEL = True
     COMANDOS_DISPONIVEL = True
     RESULTADO_DISPONIVEL = True
 except ImportError:
     RESULTADO_DISPONIVEL = False
     COMANDOS_DISPONIVEL = False
+    APOSTAS_DISPONIVEL = False
 from telegram_client import enviar_mensagem
 from datetime import datetime, timezone, timedelta
 
@@ -1329,6 +1332,54 @@ def rodar_bot():
                     salvar_aprovado(info)
                     agendador.marcar_aprovado(event_id)
                     stats.registrar_aprovacao()
+
+                    # Aposta automatica
+                    if APOSTAS_DISPONIVEL:
+                        try:
+                            res_aposta = apostas.apostar_jogo_aprovado(info)
+                            sim_tag = " *(SIMULACAO)*" if res_aposta.get("simulado") else ""
+                            if res_aposta.get("status") == "SUCCESS":
+                                enviar_mensagem(
+                                    f"🎰 *APOSTA COLOCADA{sim_tag}*\n"
+                                    f"━━━━━━━━━━━━━━━━━━━━\n"
+                                    f"⚽ " + info["nome_jogo"] + "\n"
+                                    "🔴 LAY " + str(res_aposta["placar_lay"]) + " @ " + str(res_aposta["odd_lay"]) + "\n"
+                                    "💰 Stake: £" + str(apostas.STAKE_LAY) + "\n"
+                                    "🆔 betId: `" + str(res_aposta["betId"]) + "`"
+                                )
+                            else:
+                                enviar_mensagem(
+                                    f"⚠️ *APOSTA FALHOU{sim_tag}*\n"
+                                    "⚽ " + info["nome_jogo"] + "\n"
+                                    "❌ Motivo: " + str(res_aposta.get("motivo", "?")) + "\n"
+                                    f"_Coloque manualmente._"
+                                )
+                        except Exception as e:
+                            log.error(f"  Aposta auto erro: {e}")
+
+                    # Aposta automatica
+                    if APOSTAS_DISPONIVEL:
+                        try:
+                            res_aposta = apostas.apostar_jogo_aprovado(info)
+                            sim_tag = " *(SIMULACAO)*" if res_aposta.get("simulado") else ""
+                            if res_aposta.get("status") == "SUCCESS":
+                                enviar_mensagem(
+                                    f"🎰 *APOSTA COLOCADA{sim_tag}*\n"
+                                    f"━━━━━━━━━━━━━━━━━━━━\n"
+                                    f"⚽ " + info["nome_jogo"] + "\n"
+                                    "🔴 LAY " + str(res_aposta["placar_lay"]) + " @ " + str(res_aposta["odd_lay"]) + "\n"
+                                    "💰 Stake: £" + str(apostas.STAKE_LAY) + "\n"
+                                    "🆔 betId: `" + str(res_aposta["betId"]) + "`"
+                                )
+                            else:
+                                enviar_mensagem(
+                                    f"⚠️ *APOSTA FALHOU{sim_tag}*\n"
+                                    "⚽ " + info["nome_jogo"] + "\n"
+                                    "❌ Motivo: " + str(res_aposta.get("motivo", "?")) + "\n"
+                                    f"_Coloque manualmente._"
+                                )
+                        except Exception as e:
+                            log.error(f"  Aposta auto erro: {e}")
 
                     # Melhoria A: monitor de movimento de odds
                     monitor_odds.adicionar(info)
