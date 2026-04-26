@@ -1,5 +1,5 @@
 import os
-import time
+import time 
 import json
 import logging
 import betfair_client as bf
@@ -43,10 +43,10 @@ ODD_01_MINIMA = 0
 ODD_01_MAXIMA = 22.0
 
 # Filtros Match Odds
-ODD_FAVORITO_MAX = 2.0
+ODD_FAVORITO_MAX = 2.20
 
 # Filtros Over 1.5
-ODD_OVER15_MINIMA = 1.15
+ODD_OVER15_MINIMA = 1.10
 ODD_OVER15_MAXIMA = 1.35
 
 # Filtros Ambas Marcam (BTTS)
