@@ -5,9 +5,12 @@ import logging
 import betfair_client as bf
 try:
     import resultado_jogos
+    import telegram_commands
+    COMANDOS_DISPONIVEL = True
     RESULTADO_DISPONIVEL = True
 except ImportError:
     RESULTADO_DISPONIVEL = False
+    COMANDOS_DISPONIVEL = False
 from telegram_client import enviar_mensagem
 from datetime import datetime, timezone, timedelta
 
@@ -30,6 +33,8 @@ INTERVALO_VERIFICACAO   = 5      # minutos na janela de entrada
 INTERVALO_LONGE         = 15     # minutos para jogos > 30 min antes
 LIMIAR_JANELA_ENTRADA   = 30     # minutos: abaixo disso usa intervalo curto
 INTERVALO_RECARGA_HORAS = 1
+INTERVALO_RESULTADO_MIN  = 30   # minutos entre verificacoes de resultado pos-kickoff
+HORA_HEARTBEAT           = 8    # hora do heartbeat diario (Brasilia)
 
 # Filtros Correct Score
 ODD_10_MINIMA = 0
@@ -1136,7 +1141,9 @@ def rodar_bot():
     gerar_resumo_diario()
 
     ultima_recarga        = datetime.now(timezone.utc)
-    ultimo_resumo_noturno = None   # controla envio do resumo das 23h
+    ultimo_heartbeat      = None   # controla heartbeat diario das 8h
+    ultimo_resumo_noturno  = None   # controla envio do resumo das 23h
+    ultimo_resultado_auto = datetime.now(timezone.utc)  # controla verificacao automatica de resultados
 
     while True:
         try:
@@ -1158,8 +1165,94 @@ def rodar_bot():
                 ultimo_resumo_noturno = data_hoje
                 log.info('  📋 Enviando resumo noturno de reprovações...')
                 resumo_reprovados_telegram()
+            # ── Melhoria 5: Heartbeat diario as 8h ──────────────────────
+            if hora_atual == HORA_HEARTBEAT and ultimo_heartbeat != data_hoje:
+                ultimo_heartbeat = data_hoje
+                aprovados_hoje   = carregar_aprovados_do_dia()
+                agendados        = sum(1 for d in agendador.jogos.values() if d['estado'] == 'aguardando')
+                vitorias_hoje    = sum(1 for i in aprovados_hoje.values() if i.get('resultado_geral') == 'VITORIA')
+                derrotas_hoje    = sum(1 for i in aprovados_hoje.values() if i.get('resultado_geral') == 'PERDA')
+                pendentes_hoje   = sum(1 for i in aprovados_hoje.values() if not i.get('resultado_geral'))
+                pnl_hoje         = sum(i.get('pnl_estimado', 0) or 0 for i in aprovados_hoje.values())
+                enviar_mensagem(
+                    f'💓 *Bot ativo — Bom dia!*\n'
+                    f'━━━━━━━━━━━━━━━━━━━━\n'
+                    f'📅 {agora_br.strftime("%d/%m/%Y %H:%M")} (Brasília)\n'
+                    f'📋 Jogos agendados hoje: *{agendados}*\n'
+                    f'✅ Aprovados ontem: *{len(aprovados_hoje)}* '
+                    f'({vitorias_hoje}V/{derrotas_hoje}D/{pendentes_hoje}P)\n'
+                    f'⏱ Uptime: {stats.resumo_telegram().split(chr(10))[2]}'
+                )
+                log.info('  💓 Heartbeat enviado')
+
+            # ── Melhoria 4: Resultado automatico a cada 30min ────────────
+            mins_desde_resultado = (agora_utc - ultimo_resultado_auto).total_seconds() / 60
+            if mins_desde_resultado >= INTERVALO_RESULTADO_MIN and RESULTADO_DISPONIVEL:
+                ultimo_resultado_auto = agora_utc
+                try:
+                    aprovados_agora = resultado_jogos.atualizar_resultados_do_dia(verbose=False)
+                    if aprovados_agora:
+                        novos_resultados = [
+                            info for info in aprovados_agora.values()
+                            if info.get('resultado_geral') and not info.get('_telegram_enviado')
+                        ]
+                        for info in novos_resultados:
+                            result  = info.get('resultado_geral', '')
+                            emoji   = '✅' if result == 'VITORIA' else '❌'
+                            pnl     = info.get('pnl_estimado', 0) or 0
+                            placar  = info.get('placar_final', '?')
+                            lay     = info.get('placar_lay', '')
+                            odd_lay = info.get('odd_lay', 0)
+                            fonte   = info.get('fonte_placar', '')
+                            aviso   = '\n⚠️ _Placar via fallback — verifique manualmente_' if fonte == 'fallback' else ''
+                            enviar_mensagem(
+                                f'{emoji} *RESULTADO FINAL*\n'
+                                f'━━━━━━━━━━━━━━━━━━━━\n'
+                                f'⚽ {info["nome_jogo"]}\n'
+                                f'🏁 Placar: *{placar}*\n'
+                                f'🔴 LAY {lay} @ {odd_lay}\n'
+                                f'💰 PnL: *{("+" if pnl >= 0 else "")}{pnl}u*\n'
+                                f'━━━━━━━━━━━━━━━━━━━━\n'
+                                f'📊 {resultado_jogos.resumo_resultados()}{aviso}'
+                            )
+                            info['_telegram_enviado'] = True
+                            log.info(f'  {emoji} Resultado auto: {info["nome_jogo"]} | {placar} | {result}')
+
+                        # Salva flag _telegram_enviado
+                        if novos_resultados:
+                            resultado_jogos.salvar_aprovados(aprovados_agora)
+                            stats.alertas_movimento += len(novos_resultados)
+                except Exception as e:
+                    log.warning(f'  Resultado auto erro: {e}')
+
+
 
             # Melhoria A + B: rodar monitores a cada ciclo
+            # ── Comandos Telegram ─────────────────────────────────────
+            if COMANDOS_DISPONIVEL:
+                try:
+                    telegram_commands.processar_comandos(
+                        agendador=agendador,
+                        stats=stats,
+                        resultado_jogos=resultado_jogos,
+                        carregar_aprovados_do_dia=carregar_aprovados_do_dia,
+                        carregar_reprovados_do_dia=carregar_reprovados_do_dia,
+                        FUSO_BRASILIA=FUSO_BRASILIA,
+                        ODD_10_MINIMA=ODD_10_MINIMA,
+                        ODD_10_MAXIMA=ODD_10_MAXIMA,
+                        ODD_01_MINIMA=ODD_01_MINIMA,
+                        ODD_01_MAXIMA=ODD_01_MAXIMA,
+                        ODD_FAVORITO_MAX=ODD_FAVORITO_MAX,
+                        ODD_OVER15_MINIMA=ODD_OVER15_MINIMA,
+                        ODD_OVER15_MAXIMA=ODD_OVER15_MAXIMA,
+                        ODD_BTTS_MINIMA=ODD_BTTS_MINIMA,
+                        ODD_BTTS_MAXIMA=ODD_BTTS_MAXIMA,
+                        LIQUIDEZ_MINIMA_CS_DISPONIVEL=LIQUIDEZ_MINIMA_CS_DISPONIVEL,
+                        LIQUIDEZ_MINIMA_CS_TOTAL=LIQUIDEZ_MINIMA_CS_TOTAL,
+                    )
+                except Exception as e:
+                    log.warning(f'  Comandos Telegram erro: {e}')
+
             if monitor_odds.total() > 0:
                 monitor_odds.verificar_todos()
             if monitor_saida.total() > 0:

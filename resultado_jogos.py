@@ -12,8 +12,8 @@ import betfair_client as bf
 FUSO_BRASILIA = timezone(timedelta(hours=-3))
 PASTA_DADOS   = 'dados_bot'
 
-# Mapeamento fixo de selectionId para placar CS na Betfair
-CS_MAP = {
+# Mapeamento FALLBACK — usado apenas se runners_cs_map nao estiver salvo
+CS_MAP_FALLBACK = {
     1:  '0-0',  2:  '1-0',  3:  '2-0',  4:  '0-1',  5:  '1-1',
     6:  '2-1',  7:  '3-0',  8:  '0-2',  9:  '1-2',  10: '3-1',
     11: '2-2',  12: '3-2',  13: '4-0',  14: '0-3',  15: '1-3',
@@ -47,7 +47,7 @@ def salvar_aprovados(dados: dict, data_str=None):
         json.dump(dados, f, ensure_ascii=False, indent=2)
 
 
-def buscar_resultado_mercado(market_id: str) -> dict:
+def buscar_resultado_mercado(market_id: str, runners_cs_map: dict = None) -> dict:
     rpc = json.dumps({
         'jsonrpc': '2.0',
         'method': 'SportsAPING/v1.0/listMarketBook',
@@ -69,8 +69,26 @@ def buscar_resultado_mercado(market_id: str) -> dict:
         for r in book.get('runners', []):
             if r.get('status') == 'WINNER':
                 runner_id = r.get('selectionId')
-                placar    = CS_MAP.get(runner_id, 'ID:' + str(runner_id))
-                return {'status': 'encerrado', 'runner_id': runner_id, 'placar': placar}
+
+                # Tenta usar o mapa real salvo no momento da aprovacao
+                if runners_cs_map:
+                    placar = runners_cs_map.get(str(runner_id), runners_cs_map.get(runner_id))
+                    fonte  = 'mapa_real'
+                else:
+                    placar = None
+                    fonte  = 'fallback'
+
+                # Se nao achou no mapa real, usa fallback
+                if not placar:
+                    placar = CS_MAP_FALLBACK.get(runner_id, 'ID:' + str(runner_id))
+                    fonte  = 'fallback'
+
+                return {
+                    'status':    'encerrado',
+                    'runner_id': runner_id,
+                    'placar':    placar,
+                    'fonte':     fonte,
+                }
         return {'status': 'encerrado_sem_vencedor', 'placar': None, 'runner_id': None}
 
     elif status == 'OPEN':
@@ -80,14 +98,6 @@ def buscar_resultado_mercado(market_id: str) -> dict:
 
 
 def determinar_resultado_lay(placar_final: str, info_jogo: dict) -> dict:
-    """
-    Logica correta:
-    - Entra sempre no LAY com odd MAIS ALTA (mais improvavel)
-    - Se odd_10 > odd_01 → LAY 1-0
-    - Se odd_01 > odd_10 → LAY 0-1
-    - Ganha se o jogo NAO terminar nesse placar
-    - Perde se terminar exatamente nesse placar
-    """
     resultado = {
         'placar_final':    placar_final,
         'placar_lay':      None,
@@ -101,10 +111,9 @@ def determinar_resultado_lay(placar_final: str, info_jogo: dict) -> dict:
 
     odd_10 = float(info_jogo.get('odd_10') or 0)
     odd_01 = float(info_jogo.get('odd_01') or 0)
-    stake  = 10
+    stake    = 10
     comissao = 0.05
 
-    # Determina qual LAY entrou (odd mais alta)
     if odd_10 >= odd_01:
         placar_lay = '1-0'
         odd_lay    = odd_10
@@ -115,14 +124,13 @@ def determinar_resultado_lay(placar_final: str, info_jogo: dict) -> dict:
     resultado['placar_lay'] = placar_lay
     resultado['odd_lay']    = odd_lay
 
-    placar = placar_final.replace(' ', '')
+    # Normaliza placar para comparacao (ex: "1 - 0" == "1-0")
+    placar_norm = placar_final.replace(' ', '').replace('–', '-')
 
-    if placar == placar_lay:
-        # Terminou exatamente no placar do LAY — PERDA
+    if placar_norm == placar_lay:
         pnl = -stake * (odd_lay - 1)
         resultado['resultado_geral'] = 'PERDA'
     else:
-        # Terminou diferente — GANHO
         pnl = stake * (1 - comissao)
         resultado['resultado_geral'] = 'VITORIA'
 
@@ -152,7 +160,14 @@ def atualizar_resultados_do_dia(data_str=None, verbose=True):
         if verbose:
             print('  Buscando resultado: ' + info['nome_jogo'] + '...')
 
-        res = buscar_resultado_mercado(market_id)
+        # Usa o mapa real de runners se disponivel
+        runners_cs_map = info.get('runners_cs_map', {})
+        if runners_cs_map and verbose:
+            print('    Usando mapa real de runners (' + str(len(runners_cs_map)) + ' placares)')
+        elif verbose:
+            print('    ⚠️  Sem mapa real — usando CS_MAP fallback (pode ser impreciso)')
+
+        res = buscar_resultado_mercado(market_id, runners_cs_map)
 
         if res['status'] not in ('encerrado', 'encerrado_sem_vencedor'):
             if verbose:
@@ -168,17 +183,20 @@ def atualizar_resultados_do_dia(data_str=None, verbose=True):
         info['resultado_geral']  = resultado_lay['resultado_geral']
         info['pnl_estimado']     = resultado_lay['pnl_estimado']
         info['resultado_em']     = datetime.now(FUSO_BRASILIA).strftime('%H:%M:%S')
+        info['fonte_placar']     = res.get('fonte', 'desconhecida')
         atualizados += 1
 
         if verbose:
-            pnl_val = resultado_lay.get('pnl_estimado') or 0
-            result  = resultado_lay.get('resultado_geral') or 'Pendente'
-            emoji   = '✅' if result == 'VITORIA' else '❌'
-            odd_lay = resultado_lay.get('odd_lay') or 0
+            pnl_val    = resultado_lay.get('pnl_estimado') or 0
+            result     = resultado_lay.get('resultado_geral') or 'Pendente'
+            emoji      = '✅' if result == 'VITORIA' else '❌'
+            odd_lay    = resultado_lay.get('odd_lay') or 0
             placar_lay = resultado_lay.get('placar_lay') or ''
+            fonte      = res.get('fonte', '')
             print('    ' + emoji + ' Placar: ' + str(placar_final) +
-                  ' | LAY ' + placar_lay + ' @ ' + str(odd_lay) +
-                  ' | ' + result + ' | PnL: ' + str(pnl_val) + 'u')
+                  ' | LAY ' + placar_lay + ' @' + str(odd_lay) +
+                  ' | ' + result + ' | PnL: ' + str(pnl_val) + 'u' +
+                  (' [' + fonte + ']' if fonte else ''))
 
     if atualizados > 0:
         salvar_aprovados(aprovados, data_str)
@@ -210,6 +228,8 @@ def resumo_resultados(data_str=None) -> str:
         odd_lay    = info.get('odd_lay', 0)
         result     = info.get('resultado_geral', '')
         pnl        = info.get('pnl_estimado', 0) or 0
+        fonte      = info.get('fonte_placar', '')
+        aviso      = ' ⚠️' if fonte == 'fallback' else ''
 
         if result == 'VITORIA':
             emoji = '✅'; vitorias += 1; pnl_total += pnl
@@ -219,7 +239,7 @@ def resumo_resultados(data_str=None) -> str:
             emoji = '⏳'; pendentes += 1
 
         lay_str    = ' LAY ' + str(placar_lay) + ' @' + str(odd_lay) if placar_lay else ''
-        placar_str = ' | ' + placar if placar and placar != 'Indisponivel' else ''
+        placar_str = ' | ' + placar + aviso if placar and placar != 'Indisponivel' else ''
         pnl_str    = ' | PnL: ' + ('+' if pnl >= 0 else '') + str(pnl) + 'u' if result else ''
         linhas.append(emoji + ' ' + horario + ' ' + nome + lay_str + placar_str + pnl_str)
 
