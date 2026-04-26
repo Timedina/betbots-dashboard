@@ -706,22 +706,59 @@ def tempo_para_inicio(open_date_str: str) -> float:
 
 
 def buscar_todos_jogos_do_dia() -> list:
+    """
+    Nova logica: busca direto pelos mercados CS disponiveis na Betfair BR.
+    Elimina jogos sem mercado CS antes de qualquer analise.
+    Retorna lista no mesmo formato do listEvents para compatibilidade.
+    """
     agora_brasilia      = datetime.now(FUSO_BRASILIA)
     inicio_dia_brasilia = agora_brasilia.replace(hour=0, minute=0, second=0, microsecond=0)
     fim_dia_brasilia    = agora_brasilia.replace(hour=23, minute=59, second=59, microsecond=0)
     inicio_utc = inicio_dia_brasilia.astimezone(timezone.utc)
     fim_utc    = fim_dia_brasilia.astimezone(timezone.utc)
+
     rpc = json.dumps({
-        'jsonrpc': '2.0', 'method': 'SportsAPING/v1.0/listEvents',
-        'params': {'filter': {'eventTypeIds': ['1'],
-            'marketStartTime': {
-                'from': inicio_utc.strftime('%Y-%m-%dT%H:%M:%SZ'),
-                'to':   fim_utc.strftime('%Y-%m-%dT%H:%M:%SZ'),
-            }}},
+        'jsonrpc': '2.0',
+        'method': 'SportsAPING/v1.0/listMarketCatalogue',
+        'params': {
+            'filter': {
+                'eventTypeIds': ['1'],
+                'marketTypeCodes': ['CORRECT_SCORE'],
+                'marketStartTime': {
+                    'from': inicio_utc.strftime('%Y-%m-%dT%H:%M:%SZ'),
+                    'to':   fim_utc.strftime('%Y-%m-%dT%H:%M:%SZ'),
+                }
+            },
+            'maxResults': '1000',
+            'marketProjection': ['COMPETITION', 'EVENT', 'MARKET_START_TIME'],
+        },
         'id': 1
     })
     stats.registrar_chamada_api()
-    return bf.chamar_api(rpc) or []
+    mercados = bf.chamar_api(rpc) or []
+
+    # Converte para formato compativel com listEvents
+    # Filtra jogos de teste (nome comeca com "Test")
+    vistos = set()
+    jogos  = []
+    for m in mercados:
+        evento = m.get('event', {})
+        event_id  = evento.get('id')
+        nome_jogo = evento.get('name', '')
+        open_date = evento.get('openDate', '')
+
+        if not event_id or not open_date:
+            continue
+        if event_id in vistos:
+            continue
+        if nome_jogo.lower().startswith('test'):
+            continue
+
+        vistos.add(event_id)
+        jogos.append({'event': evento})
+
+    log.info(f'  CS disponiveis na Betfair BR: {len(mercados)} mercados | {len(jogos)} jogos unicos')
+    return jogos
 
 
 def calcular_liquidez_disponivel_lay(runners_book: list, runners_map: dict, nomes: list) -> float:
