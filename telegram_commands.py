@@ -281,15 +281,19 @@ def processar_comandos(agendador, stats, resultado_jogos, carregar_aprovados_do_
         elif texto.startswith('/'):
             responder(chat_id,
                 '❓ *Comandos disponíveis:*\n'
-                '/resultado — PnL e resultados do dia\n'
+                '/resultado — resultados do dia em R$\n'
                 '/jogos — fila de jogos aguardando\n'
                 '/status — status e uptime do bot\n'
                 '/aprovados — jogos aprovados hoje\n'
                 '/filtros — filtros ativos\n'
                 '/reprovados — motivos de reprovação\n'
-                '/historico — historico de todos os dias\n'
+                '/historico — histórico de todos os dias\n'
                 '/simulacoes — apostas simuladas\n'
-                '/odds [times] — odds LAY dos times'
+                '/semana — resumo da semana atual\n'
+                '/mes — resumo do mês atual\n'
+                '/odds [times] — odds LAY de times\n'
+                '/jogo [times] — analisa jogo completo\n'
+                '/setfiltro [filtro] [valor] — altera filtro'
             )
 
 
