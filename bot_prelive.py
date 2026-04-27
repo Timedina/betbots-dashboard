@@ -1225,6 +1225,26 @@ def rodar_bot():
                 )
                 log.info('  💓 Heartbeat enviado')
 
+            # ── Melhoria 5: Heartbeat diario as 8h ──────────────────────
+            if hora_atual == HORA_HEARTBEAT and ultimo_heartbeat != data_hoje:
+                ultimo_heartbeat = data_hoje
+                aprovados_hoje   = carregar_aprovados_do_dia()
+                agendados        = sum(1 for d in agendador.jogos.values() if d['estado'] == 'aguardando')
+                vitorias_hoje    = sum(1 for i in aprovados_hoje.values() if i.get('resultado_geral') == 'VITORIA')
+                derrotas_hoje    = sum(1 for i in aprovados_hoje.values() if i.get('resultado_geral') == 'PERDA')
+                pendentes_hoje   = sum(1 for i in aprovados_hoje.values() if not i.get('resultado_geral'))
+                pnl_hoje         = sum(i.get('pnl_estimado', 0) or 0 for i in aprovados_hoje.values())
+                enviar_mensagem(
+                    f'💓 *Bot ativo — Bom dia!*\n'
+                    f'━━━━━━━━━━━━━━━━━━━━\n'
+                    f'📅 {agora_br.strftime("%d/%m/%Y %H:%M")} (Brasília)\n'
+                    f'📋 Jogos agendados hoje: *{agendados}*\n'
+                    f'✅ Aprovados ontem: *{len(aprovados_hoje)}* '
+                    f'({vitorias_hoje}V/{derrotas_hoje}D/{pendentes_hoje}P)\n'
+                    f'⏱ Uptime: {stats.resumo_telegram().split(chr(10))[2]}'
+                )
+                log.info('  💓 Heartbeat enviado')
+
             # ── Melhoria 4: Resultado automatico a cada 30min ────────────
             mins_desde_resultado = (agora_utc - ultimo_resultado_auto).total_seconds() / 60
             if mins_desde_resultado >= INTERVALO_RESULTADO_MIN and RESULTADO_DISPONIVEL:
@@ -1344,7 +1364,7 @@ def rodar_bot():
                                     f"━━━━━━━━━━━━━━━━━━━━\n"
                                     f"⚽ " + info["nome_jogo"] + "\n"
                                     "🔴 LAY " + str(res_aposta["placar_lay"]) + " @ " + str(res_aposta["odd_lay"]) + "\n"
-                                    "💰 Stake: £" + str(apostas.STAKE_LAY) + "\n"
+                                    "💰 Stake: R$" + str(apostas.STAKE_LAY) + "\n"
                                     "🆔 betId: `" + str(res_aposta["betId"]) + "`"
                                 )
                             else:
@@ -1368,7 +1388,7 @@ def rodar_bot():
                                     f"━━━━━━━━━━━━━━━━━━━━\n"
                                     f"⚽ " + info["nome_jogo"] + "\n"
                                     "🔴 LAY " + str(res_aposta["placar_lay"]) + " @ " + str(res_aposta["odd_lay"]) + "\n"
-                                    "💰 Stake: £" + str(apostas.STAKE_LAY) + "\n"
+                                    "💰 Stake: R$" + str(apostas.STAKE_LAY) + "\n"
                                     "🆔 betId: `" + str(res_aposta["betId"]) + "`"
                                 )
                             else:

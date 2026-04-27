@@ -240,13 +240,13 @@ def resumo_resultados(data_str=None) -> str:
 
         lay_str    = ' LAY ' + str(placar_lay) + ' @' + str(odd_lay) if placar_lay else ''
         placar_str = ' | ' + placar + aviso if placar and placar != 'Indisponivel' else ''
-        pnl_str    = ' | PnL: ' + ('+' if pnl >= 0 else '') + str(pnl) + 'u' if result else ''
+        pnl_str    = ' | PnL: ' + ('+' if pnl >= 0 else '') + 'R$' + str(abs(round(pnl,2))) if result else ''
         linhas.append(emoji + ' ' + horario + ' ' + nome + lay_str + placar_str + pnl_str)
 
     linhas += [
         '━━━━━━━━━━━━━━━━━━━━',
         '✅ Vitorias: ' + str(vitorias) + ' | ❌ Perdas: ' + str(derrotas) + ' | ⏳ Pendentes: ' + str(pendentes),
-        '💰 PnL Total: ' + ('+' if pnl_total >= 0 else '') + str(round(pnl_total, 1)) + ' unidades (stake R$11/LAY)',
+        '💰 PnL Total: ' + ('+' if pnl_total >= 0 else '') + 'R$' + str(abs(round(pnl_total,2))) + ' (stake R$11/LAY)',
     ]
     return '\n'.join(linhas)
 

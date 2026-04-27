@@ -219,10 +219,10 @@ def processar_comandos(agendador, stats, resultado_jogos, carregar_aprovados_do_
                         pnl = sum(j.get('pnl_estimado', 0) or 0 for j in jogos.values())
                         total_v += v; total_d += d; total_p += p; pnl_geral += pnl
                         sinal = '+' if pnl >= 0 else ''
-                        linhas_msg.append(f'📅 *{data_str}* | {len(jogos)} jogos | {v}V/{d}D/{p}P | PnL: {sinal}{round(pnl,1)}u')
+                        linhas_msg.append(f'📅 *{data_str}* | {len(jogos)} jogos | {v}V/{d}D/{p}P | {sinal}R${abs(round(pnl,2))}')
                     linhas_msg.append('━━━━━━━━━━━━━━━━━━━━')
                     sinal_g = '+' if pnl_geral >= 0 else ''
-                    linhas_msg.append(f'📊 *Total:* {total_v}V/{total_d}D/{total_p}P | PnL: *{sinal_g}{round(pnl_geral,1)}u*')
+                    linhas_msg.append(f'📊 *Total:* {total_v}V/{total_d}D/{total_p}P | Lucro: *{sinal_g}R${abs(round(pnl_geral,2))}*')
                     responder(chat_id, '\n'.join(linhas_msg))
             except Exception as e:
                 responder(chat_id, 'Erro: ' + str(e))
@@ -252,13 +252,13 @@ def processar_comandos(agendador, stats, resultado_jogos, carregar_aprovados_do_
                         odd = info.get('odd_lay', 0)
                         sinal = '+' if pnl >= 0 else ''
                         linhas_msg.append(f'{emoji} {data_str} | {info["nome_jogo"]}')
-                        linhas_msg.append(f'   LAY {lay}@{odd} | Placar: {placar} | PnL: {sinal}{pnl}u')
+                        linhas_msg.append(f'   LAY {lay}@{odd} | Placar: {placar} | {sinal}R${abs(round(pnl,2))}')
                 if total_sim == 0:
                     responder(chat_id, 'Nenhuma simulacao encontrada ainda.')
                 else:
                     linhas_msg.append('━━━━━━━━━━━━━━━━━━━━')
                     sinal_t = '+' if pnl_sim >= 0 else ''
-                    linhas_msg.append(f'💰 *PnL Total Simulado: {sinal_t}{round(pnl_sim,1)}u* ({total_sim} jogos)')
+                    linhas_msg.append(f'💰 *Lucro Total Simulado: {sinal_t}R${abs(round(pnl_sim,2))}* ({total_sim} jogos)')
                     responder(chat_id, '\n'.join(linhas_msg))
             except Exception as e:
                 responder(chat_id, 'Erro: ' + str(e))
