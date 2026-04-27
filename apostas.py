@@ -16,7 +16,7 @@ from datetime import datetime, timezone, timedelta
 import betfair_client as bf
 
 FUSO_BRASILIA  = timezone(timedelta(hours=-3))
-STAKE_LAY      = 2.0   # £ minimo Betfair
+STAKE_LAY      = 11.0   # £ minimo Betfair
 MODO_SIMULACAO = True  # ← mude para False quando quiser apostar de verdade
 
 log = logging.getLogger('bot')
@@ -24,7 +24,7 @@ log = logging.getLogger('bot')
 
 def place_lay(market_id: str, selection_id: int, odd: float, stake: float = STAKE_LAY) -> dict:
     if MODO_SIMULACAO:
-        log.info(f'  [Aposta-SIM] LAY simulado | market={market_id} | sel={selection_id} | odd={odd} | stake=£{stake}')
+        log.info(f'  [Aposta-SIM] LAY simulado | market={market_id} | sel={selection_id} | odd={odd} | stake=R${stake}')
         return {
             'status':      'SUCCESS',
             'betId':       'SIMULADO',

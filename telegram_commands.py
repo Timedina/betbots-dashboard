@@ -18,12 +18,24 @@ CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
 _ultimo_update_id = 0
 _lock = threading.Lock()
+_inicializado = False
 
 
 def get_updates():
-    global _ultimo_update_id
+    global _ultimo_update_id, _inicializado
     try:
         url  = f'https://api.telegram.org/bot{TOKEN}/getUpdates'
+
+        # Na primeira chamada, descarta updates antigos
+        if not _inicializado:
+            resp = requests.get(url, params={'offset': -1, 'timeout': 1}, timeout=5)
+            if resp.status_code == 200:
+                results = resp.json().get('result', [])
+                if results:
+                    _ultimo_update_id = results[-1]['update_id']
+            _inicializado = True
+            return []
+
         resp = requests.get(url, params={'offset': _ultimo_update_id + 1, 'timeout': 5}, timeout=10)
         if resp.status_code == 200:
             return resp.json().get('result', [])
@@ -183,6 +195,74 @@ def processar_comandos(agendador, stats, resultado_jogos, carregar_aprovados_do_
                     linhas.append(f'  • {motivo}: *{n}x*')
                 responder(chat_id, '\n'.join(linhas))
 
+        # ── /historico ───────────────────────────────────────────
+        elif texto == '/historico':
+            try:
+                import os, json as _json
+                fuso = FUSO_BRASILIA
+                pasta = 'dados_bot'
+                arquivos = sorted([f for f in os.listdir(pasta) if f.startswith('aprovados_')])
+                if not arquivos:
+                    responder(chat_id, 'Nenhum historico encontrado.')
+                else:
+                    linhas_msg = ['📋 *Histórico de Jogos*', '━━━━━━━━━━━━━━━━━━━━']
+                    total_v = total_d = total_p = 0
+                    pnl_geral = 0.0
+                    for arq in arquivos:
+                        data_str = arq.replace('aprovados_', '').replace('.json', '')
+                        with open(os.path.join(pasta, arq)) as ff:
+                            jogos = _json.load(ff)
+                        if not jogos: continue
+                        v = sum(1 for j in jogos.values() if j.get('resultado_geral') == 'VITORIA')
+                        d = sum(1 for j in jogos.values() if j.get('resultado_geral') == 'PERDA')
+                        p = sum(1 for j in jogos.values() if not j.get('resultado_geral'))
+                        pnl = sum(j.get('pnl_estimado', 0) or 0 for j in jogos.values())
+                        total_v += v; total_d += d; total_p += p; pnl_geral += pnl
+                        sinal = '+' if pnl >= 0 else ''
+                        linhas_msg.append(f'📅 *{data_str}* | {len(jogos)} jogos | {v}V/{d}D/{p}P | PnL: {sinal}{round(pnl,1)}u')
+                    linhas_msg.append('━━━━━━━━━━━━━━━━━━━━')
+                    sinal_g = '+' if pnl_geral >= 0 else ''
+                    linhas_msg.append(f'📊 *Total:* {total_v}V/{total_d}D/{total_p}P | PnL: *{sinal_g}{round(pnl_geral,1)}u*')
+                    responder(chat_id, '\n'.join(linhas_msg))
+            except Exception as e:
+                responder(chat_id, 'Erro: ' + str(e))
+
+        # ── /simulacoes ──────────────────────────────────────────────
+        elif texto == '/simulacoes':
+            try:
+                import os, json as _json
+                pasta = 'dados_bot'
+                arquivos = sorted([f for f in os.listdir(pasta) if f.startswith('aprovados_')])
+                linhas_msg = ['🎰 *Simulações de Apostas*', '━━━━━━━━━━━━━━━━━━━━']
+                total_sim = 0
+                pnl_sim = 0.0
+                for arq in arquivos:
+                    data_str = arq.replace('aprovados_', '').replace('.json', '')
+                    with open(os.path.join(pasta, arq)) as ff:
+                        jogos = _json.load(ff)
+                    for info in jogos.values():
+                        if not info.get('placar_lay'): continue
+                        total_sim += 1
+                        pnl = info.get('pnl_estimado', 0) or 0
+                        pnl_sim += pnl
+                        result = info.get('resultado_geral', 'Pendente')
+                        emoji = '✅' if result == 'VITORIA' else ('❌' if result == 'PERDA' else '⏳')
+                        placar = info.get('placar_final', '?')
+                        lay = info.get('placar_lay', '')
+                        odd = info.get('odd_lay', 0)
+                        sinal = '+' if pnl >= 0 else ''
+                        linhas_msg.append(f'{emoji} {data_str} | {info["nome_jogo"]}')
+                        linhas_msg.append(f'   LAY {lay}@{odd} | Placar: {placar} | PnL: {sinal}{pnl}u')
+                if total_sim == 0:
+                    responder(chat_id, 'Nenhuma simulacao encontrada ainda.')
+                else:
+                    linhas_msg.append('━━━━━━━━━━━━━━━━━━━━')
+                    sinal_t = '+' if pnl_sim >= 0 else ''
+                    linhas_msg.append(f'💰 *PnL Total Simulado: {sinal_t}{round(pnl_sim,1)}u* ({total_sim} jogos)')
+                    responder(chat_id, '\n'.join(linhas_msg))
+            except Exception as e:
+                responder(chat_id, 'Erro: ' + str(e))
+
         # ── /odds ────────────────────────────────────────────────
         elif texto.startswith('/odds'):
             partes = texto.replace('/odds', '').strip()
@@ -207,6 +287,8 @@ def processar_comandos(agendador, stats, resultado_jogos, carregar_aprovados_do_
                 '/aprovados — jogos aprovados hoje\n'
                 '/filtros — filtros ativos\n'
                 '/reprovados — motivos de reprovação\n'
+                '/historico — historico de todos os dias\n'
+                '/simulacoes — apostas simuladas\n'
                 '/odds [times] — odds LAY dos times'
             )
 

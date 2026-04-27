@@ -111,8 +111,8 @@ def determinar_resultado_lay(placar_final: str, info_jogo: dict) -> dict:
 
     odd_10 = float(info_jogo.get('odd_10') or 0)
     odd_01 = float(info_jogo.get('odd_01') or 0)
-    stake    = 10
-    comissao = 0.05
+    stake    = 11
+    comissao = 0.0636
 
     if odd_10 >= odd_01:
         placar_lay = '1-0'
@@ -246,7 +246,7 @@ def resumo_resultados(data_str=None) -> str:
     linhas += [
         '━━━━━━━━━━━━━━━━━━━━',
         '✅ Vitorias: ' + str(vitorias) + ' | ❌ Perdas: ' + str(derrotas) + ' | ⏳ Pendentes: ' + str(pendentes),
-        '💰 PnL Total: ' + ('+' if pnl_total >= 0 else '') + str(round(pnl_total, 1)) + ' unidades (stake 10/LAY)',
+        '💰 PnL Total: ' + ('+' if pnl_total >= 0 else '') + str(round(pnl_total, 1)) + ' unidades (stake R$11/LAY)',
     ]
     return '\n'.join(linhas)
 
