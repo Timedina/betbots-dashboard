@@ -758,7 +758,7 @@ def buscar_todos_jogos_do_dia() -> list:
             continue
 
         vistos.add(event_id)
-        jogos.append({'event': evento})
+        jogos.append({'event': evento, 'market_id_cs': m.get('marketId', '')})
 
     log.info(f'  CS disponiveis na Betfair BR: {len(mercados)} mercados | {len(jogos)} jogos unicos')
     return jogos
@@ -841,7 +841,7 @@ def buscar_mercados_restantes_batch(cs_mercado, over15_mercado, btts_mercado) ->
 # ANALISE PRINCIPAL
 # ============================================================
 
-def analisar_jogo(event_id: str, nome_jogo: str, minutos: float) -> dict:
+def analisar_jogo(event_id: str, nome_jogo: str, minutos: float, market_id_cs_hint: str = '') -> dict:
     resultado = {
         'aprovado': False,
         'motivo_reprovacao': [],
@@ -858,7 +858,7 @@ def analisar_jogo(event_id: str, nome_jogo: str, minutos: float) -> dict:
         return resultado
 
     mercados = listar_mercados_filtrado(event_id)
-    if not mercados:
+    if not mercados and not market_id_cs_hint:
         resultado['motivo_reprovacao'].append('Sem mercados')
         return resultado
 
@@ -1079,6 +1079,7 @@ class AgendadorJogos:
                 'open_date':           open_date,
                 'estado':              'aguardando',
                 'proxima_verificacao': proxima,
+                'market_id_cs':        jogo.get('market_id_cs', ''),
             }
             novos += 1
 
@@ -1339,7 +1340,8 @@ def rodar_bot():
                 horario   = utc_para_brasilia(dados['open_date'])
 
                 log.info(f'  🔍 {nome_jogo} ({horario}) | {int(minutos):+d} min')
-                info = analisar_jogo(event_id, nome_jogo, minutos)
+                market_id_cs_hint = dados.get('market_id_cs', '')
+                info = analisar_jogo(event_id, nome_jogo, minutos, market_id_cs_hint)
 
                 if info['aprovado']:
                     info['horario']   = horario

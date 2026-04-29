@@ -65,6 +65,8 @@ def processar_comandos(agendador, stats, resultado_jogos, carregar_aprovados_do_
     global _ultimo_update_id
 
     updates = get_updates()
+    import logging
+    logging.getLogger('bot').info(f'  [Telegram] updates recebidos: {len(updates)}')
     if not updates:
         return
 
@@ -75,7 +77,10 @@ def processar_comandos(agendador, stats, resultado_jogos, carregar_aprovados_do_
         texto   = msg.get('text', '').strip().lower()
 
         # Seguranca: so responde ao chat autorizado
+        import logging
+        logging.getLogger('bot').info(f'  [Telegram] chat_id={chat_id} | CHAT_ID={CHAT_ID} | texto={texto}')
         if chat_id != str(CHAT_ID):
+            logging.getLogger('bot').warning(f'  [Telegram] chat_id nao autorizado: {chat_id}')
             continue
 
         agora_br  = datetime.now(FUSO_BRASILIA)
@@ -277,6 +282,112 @@ def processar_comandos(agendador, stats, resultado_jogos, carregar_aprovados_do_
                 except Exception as e:
                     responder(chat_id, 'Erro: ' + str(e))
 
+        # ── /semana ──────────────────────────────────────────────
+        elif texto == '/semana':
+            try:
+                import os, json as _json
+                fuso2 = FUSO_BRASILIA
+                hoje = datetime.now(fuso2)
+                inicio_semana = hoje - timedelta(days=hoje.weekday())
+                pasta = 'dados_bot'
+                arquivos = sorted([f for f in os.listdir(pasta) if f.startswith('aprovados_')])
+                total_v = total_d = total_p = 0
+                pnl = 0.0
+                linhas_msg = ['📅 *Resumo da Semana*', '━━━━━━━━━━━━━━━━━━━━']
+                for arq in arquivos:
+                    data_str = arq.replace('aprovados_', '').replace('.json', '')
+                    try:
+                        dt = datetime.strptime(data_str, '%Y-%m-%d').replace(tzinfo=fuso2)
+                        if dt < inicio_semana: continue
+                    except: continue
+                    with open(os.path.join(pasta, arq)) as ff:
+                        jogos = _json.load(ff)
+                    v = sum(1 for j in jogos.values() if j.get('resultado_geral') == 'VITORIA')
+                    d = sum(1 for j in jogos.values() if j.get('resultado_geral') == 'PERDA')
+                    p = sum(1 for j in jogos.values() if not j.get('resultado_geral'))
+                    pnl_dia = sum(j.get('pnl_estimado', 0) or 0 for j in jogos.values())
+                    total_v += v; total_d += d; total_p += p; pnl += pnl_dia
+                    sinal = '+' if pnl_dia >= 0 else ''
+                    linhas_msg.append(f'📅 *{data_str}* | {v}V/{d}D/{p}P | {sinal}R${abs(round(pnl_dia,2))}')
+                taxa = round(total_v / (total_v + total_d) * 100, 1) if (total_v + total_d) > 0 else 0
+                sinal_t = '+' if pnl >= 0 else ''
+                linhas_msg.append('━━━━━━━━━━━━━━━━━━━━')
+                linhas_msg.append(f'✅ *{total_v}V* / ❌ *{total_d}D* / ⏳ *{total_p}P*')
+                linhas_msg.append(f'🎯 Taxa de acerto: *{taxa}%*')
+                linhas_msg.append(f'💰 Lucro: *{sinal_t}R${abs(round(pnl,2))}*')
+                responder(chat_id, '\n'.join(linhas_msg))
+            except Exception as e:
+                responder(chat_id, 'Erro /semana: ' + str(e))
+
+        # ── /mes ─────────────────────────────────────────────────
+        elif texto == '/mes':
+            try:
+                import os, json as _json
+                fuso2 = FUSO_BRASILIA
+                hoje = datetime.now(fuso2)
+                mes_atual = hoje.strftime('%Y-%m')
+                pasta = 'dados_bot'
+                arquivos = sorted([f for f in os.listdir(pasta) if f.startswith('aprovados_')])
+                total_v = total_d = total_p = 0
+                pnl = 0.0
+                linhas_msg = [f'📆 *Resumo de {hoje.strftime("%B/%Y")}*', '━━━━━━━━━━━━━━━━━━━━']
+                for arq in arquivos:
+                    data_str = arq.replace('aprovados_', '').replace('.json', '')
+                    if not data_str.startswith(mes_atual): continue
+                    with open(os.path.join(pasta, arq)) as ff:
+                        jogos = _json.load(ff)
+                    v = sum(1 for j in jogos.values() if j.get('resultado_geral') == 'VITORIA')
+                    d = sum(1 for j in jogos.values() if j.get('resultado_geral') == 'PERDA')
+                    p = sum(1 for j in jogos.values() if not j.get('resultado_geral'))
+                    pnl_dia = sum(j.get('pnl_estimado', 0) or 0 for j in jogos.values())
+                    total_v += v; total_d += d; total_p += p; pnl += pnl_dia
+                    sinal = '+' if pnl_dia >= 0 else ''
+                    linhas_msg.append(f'📅 *{data_str}* | {v}V/{d}D/{p}P | {sinal}R${abs(round(pnl_dia,2))}')
+                taxa = round(total_v / (total_v + total_d) * 100, 1) if (total_v + total_d) > 0 else 0
+                sinal_t = '+' if pnl >= 0 else ''
+                linhas_msg.append('━━━━━━━━━━━━━━━━━━━━')
+                linhas_msg.append(f'✅ *{total_v}V* / ❌ *{total_d}D* / ⏳ *{total_p}P*')
+                linhas_msg.append(f'🎯 Taxa de acerto: *{taxa}%*')
+                linhas_msg.append(f'💰 Lucro: *{sinal_t}R${abs(round(pnl,2))}*')
+                responder(chat_id, '\n'.join(linhas_msg))
+            except Exception as e:
+                responder(chat_id, 'Erro /mes: ' + str(e))
+
+        # ── /jogo ─────────────────────────────────────────────────
+        elif texto.startswith('/jogo'):
+            partes = texto.replace('/jogo', '').strip()
+            if not partes:
+                responder(chat_id, '/jogo Rangers Motherwell')
+            else:
+                responder(chat_id, 'Analisando: ' + partes + '...')
+                try:
+                    resultado = buscar_analise_jogo(partes)
+                    responder(chat_id, resultado)
+                except Exception as e:
+                    responder(chat_id, 'Erro /jogo: ' + str(e))
+
+        # ── /setfiltro ────────────────────────────────────────────
+        elif texto.startswith('/setfiltro'):
+            partes = texto.replace('/setfiltro', '').strip().split()
+            if len(partes) != 2:
+                responder(chat_id, 'Uso: /setfiltro favorito 2.2')
+            else:
+                nome_f, valor_f = partes[0], partes[1]
+                mapa = {
+                    'favorito': 'ODD_FAVORITO_MAX', 'oddmax': 'ODD_10_MAXIMA',
+                    'oddmin': 'ODD_10_MINIMA', 'over15min': 'ODD_OVER15_MINIMA',
+                    'over15max': 'ODD_OVER15_MAXIMA', 'bttsmin': 'ODD_BTTS_MINIMA',
+                    'bttsmax': 'ODD_BTTS_MAXIMA', 'liquidez': 'LIQUIDEZ_MINIMA_CS_DISPONIVEL',
+                }
+                if nome_f not in mapa:
+                    responder(chat_id, 'Filtro desconhecido: ' + nome_f)
+                else:
+                    try:
+                        _filtros_dinamicos[mapa[nome_f]] = float(valor_f)
+                        responder(chat_id, f'✅ *{nome_f}* = *{valor_f}* (válido até reiniciar)')
+                    except:
+                        responder(chat_id, 'Valor inválido: ' + valor_f)
+
         # ── comando desconhecido ──────────────────────────────────
         elif texto.startswith('/'):
             responder(chat_id,
@@ -371,4 +482,124 @@ def buscar_odds_por_times(nomes_times: list) -> str:
             linhas.append('⏳ Odds ainda não disponíveis')
 
     linhas.append('\n✅ = dentro do filtro (10-22) | ❌ = fora')
+    return '\n'.join(linhas)
+
+
+def buscar_analise_jogo(busca: str) -> str:
+    import betfair_client as bf
+    import json
+
+    rpc = json.dumps({
+        'jsonrpc': '2.0',
+        'method': 'SportsAPING/v1.0/listMarketCatalogue',
+        'params': {
+            'filter': {'eventTypeIds': ['1'], 'marketTypeCodes': ['CORRECT_SCORE', 'MATCH_ODDS', 'OVER_UNDER_15', 'BOTH_TEAMS_TO_SCORE']},
+            'maxResults': '200',
+            'marketProjection': ['COMPETITION', 'EVENT', 'MARKET_START_TIME', 'RUNNER_DESCRIPTION'],
+        },
+        'id': 1
+    })
+
+    mercados = bf.chamar_api(rpc) or []
+
+    eventos = {}
+    for m in mercados:
+        evento = m.get('event', {})
+        eid = evento.get('id')
+        nome = evento.get('name', '')
+        if not eid: continue
+        termos = busca.lower().split()
+        if not all(t in nome.lower() for t in termos): continue
+        if eid not in eventos:
+            eventos[eid] = {'nome': nome, 'mercados': [], 'open_date': evento.get('openDate', '')}
+        eventos[eid]['mercados'].append(m)
+
+    if not eventos:
+        return '❌ Jogo não encontrado para: ' + busca
+
+    linhas = ['🔍 *Análise de Jogo*', '━━━━━━━━━━━━━━━━━━━━']
+
+    for eid, ev in list(eventos.items())[:2]:
+        try:
+            from datetime import datetime, timezone, timedelta
+            fuso = timezone(timedelta(hours=-3))
+            dt = datetime.fromisoformat(ev['open_date'].replace('Z', '+00:00'))
+            horario = dt.astimezone(fuso).strftime('%d/%m %H:%M')
+        except:
+            horario = '?'
+
+        linhas.append(f'\n⚽ *{ev["nome"]}* — {horario}')
+
+        cs_m  = next((m for m in ev['mercados'] if m['marketName'] == 'Correct Score'), None)
+        mo_m  = next((m for m in ev['mercados'] if m['marketName'] == 'Match Odds'), None)
+        o15_m = next((m for m in ev['mercados'] if m['marketName'] == 'Over/Under 1.5 Goals'), None)
+        bt_m  = next((m for m in ev['mercados'] if m['marketName'] == 'Both teams to Score?'), None)
+
+        ids = [m['marketId'] for m in [cs_m, mo_m, o15_m, bt_m] if m]
+        if not ids:
+            linhas.append('❌ Sem mercados disponíveis')
+            continue
+
+        books = {b['marketId']: b for b in (bf.listar_odds(ids, ['EX_BEST_OFFERS']) or [])}
+
+        fails = 0
+
+        if cs_m and cs_m['marketId'] in books:
+            book = books[cs_m['marketId']]
+            runners = {r['selectionId']: r['runnerName'] for r in cs_m.get('runners', [])}
+            bk = book.get('runners', [])
+            odd_10 = next((bf.get_lay(r) for r in bk if runners.get(r['selectionId']) == '1 - 0'), None)
+            odd_01 = next((bf.get_lay(r) for r in bk if runners.get(r['selectionId']) == '0 - 1'), None)
+            liq = sum(o.get('size',0) for r in bk if runners.get(r['selectionId']) in ['1 - 0','0 - 1'] for o in r.get('ex',{}).get('availableToLay',[]))
+            ok_10 = '✅' if odd_10 and 0 <= odd_10 <= 22 else '❌'
+            ok_01 = '✅' if odd_01 and 0 <= odd_01 <= 22 else '❌'
+            ok_liq = '✅' if liq >= 150 else '❌'
+            if ok_10 == '❌': fails += 1
+            if ok_01 == '❌': fails += 1
+            if ok_liq == '❌': fails += 1
+            linhas.append(f'{ok_10} LAY 1-0 @ *{odd_10}*')
+            linhas.append(f'{ok_01} LAY 0-1 @ *{odd_01}*')
+            linhas.append(f'{ok_liq} Liquidez: £{liq:,.0f}')
+
+        if mo_m and mo_m['marketId'] in books:
+            book = books[mo_m['marketId']]
+            runners = {r['selectionId']: r['runnerName'] for r in mo_m.get('runners', [])}
+            bk = book.get('runners', [])
+            fav_odd = None
+            fav_nome = None
+            for r in bk:
+                back = bf.get_back(r)
+                nome_r = runners.get(r['selectionId'], '')
+                if nome_r == 'The Draw': continue
+                if back and (fav_odd is None or back < fav_odd):
+                    fav_odd = back
+                    fav_nome = nome_r
+            ok_fav = '✅' if fav_odd and fav_odd <= 2.0 else '❌'
+            if ok_fav == '❌': fails += 1
+            linhas.append(f'{ok_fav} Favorito: {fav_nome} @ *{fav_odd}*')
+
+        if o15_m and o15_m['marketId'] in books:
+            book = books[o15_m['marketId']]
+            runners = {r['selectionId']: r['runnerName'] for r in o15_m.get('runners', [])}
+            bk = book.get('runners', [])
+            odd_over = next((bf.get_back(r) for r in bk if runners.get(r['selectionId']) == 'Over 1.5 Goals'), None)
+            ok_over = '✅' if odd_over and 1.15 <= odd_over <= 1.35 else '❌'
+            if ok_over == '❌': fails += 1
+            linhas.append(f'{ok_over} Over 1.5 @ *{odd_over}*')
+
+        if bt_m and bt_m['marketId'] in books:
+            book = books[bt_m['marketId']]
+            runners = {r['selectionId']: r['runnerName'] for r in bt_m.get('runners', [])}
+            bk = book.get('runners', [])
+            odd_btts = next((bf.get_back(r) for r in bk if runners.get(r['selectionId']) == 'Yes'), None)
+            ok_btts = '✅' if odd_btts and 1.55 <= odd_btts <= 2.30 else '❌'
+            if ok_btts == '❌': fails += 1
+            linhas.append(f'{ok_btts} BTTS @ *{odd_btts}*')
+
+        linhas.append('━━━━━━━━━━━━━━━━━━━━')
+        if fails == 0:
+            linhas.append('🟢 *APROVADO — todos os filtros passaram*')
+        else:
+            linhas.append(f'🔴 *REPROVADO — {fails} filtro(s) falharam*')
+
     return '\n'.join(linhas)
