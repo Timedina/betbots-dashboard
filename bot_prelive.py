@@ -41,9 +41,9 @@ HORA_HEARTBEAT           = 8    # hora do heartbeat diario (Brasilia)
 
 # Filtros Correct Score
 ODD_10_MINIMA = 0
-ODD_10_MAXIMA = 22.0
+ODD_10_MAXIMA = 25.0
 ODD_01_MINIMA = 0
-ODD_01_MAXIMA = 22.0
+ODD_01_MAXIMA = 25.0
 
 # Filtros Match Odds
 ODD_FAVORITO_MAX = 2.20
