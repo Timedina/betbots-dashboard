@@ -392,12 +392,35 @@ stats = Estatisticas()
 class CacheEventos:
     def __init__(self):
         self._pulados: dict = {}
+        self._carregar()
+
+    def _path(self):
+        from datetime import datetime, timezone, timedelta
+        data = datetime.now(timezone(timedelta(hours=-3))).strftime('%Y-%m-%d')
+        return os.path.join(PASTA_DADOS, f'cache_{data}.json')
+
+    def _carregar(self):
+        try:
+            if os.path.exists(self._path()):
+                with open(self._path()) as f:
+                    self._pulados = json.load(f)
+                log.info(f'  Cache carregado: {len(self._pulados)} eventos bloqueados')
+        except:
+            self._pulados = {}
+
+    def _salvar(self):
+        try:
+            with open(self._path(), 'w') as f:
+                json.dump(self._pulados, f)
+        except:
+            pass
 
     def deve_pular(self, event_id: str) -> bool:
         return event_id in self._pulados
 
     def registrar(self, event_id: str, motivo: str):
         self._pulados[event_id] = motivo
+        self._salvar()
         log.debug(f'  Cache: {event_id} bloqueado — {motivo}')
 
     def total(self) -> int:
