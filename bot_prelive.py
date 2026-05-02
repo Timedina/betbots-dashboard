@@ -401,6 +401,14 @@ class CacheEventos:
 
     def _carregar(self):
         try:
+            # Limpa arquivos de cache de dias anteriores
+            import glob
+            from datetime import datetime, timezone, timedelta
+            hoje = datetime.now(timezone(timedelta(hours=-3))).strftime('%Y-%m-%d')
+            for arq in glob.glob(os.path.join(PASTA_DADOS, 'cache_*.json')):
+                if hoje not in arq:
+                    os.remove(arq)
+            # Carrega cache do dia atual
             if os.path.exists(self._path()):
                 with open(self._path()) as f:
                     self._pulados = json.load(f)
