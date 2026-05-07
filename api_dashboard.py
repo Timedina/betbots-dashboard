@@ -154,7 +154,7 @@ def index():
     """Serve o painel HTML"""
     dashboard_path = os.path.expanduser('~/bot-prelive-betfair/dashboard.html')
     if os.path.exists(dashboard_path):
-        return send_file(dashboard_path)
+        return send_file(dashboard_path, max_age=0)
     return '<h1>Dashboard não encontrado. Coloque o dashboard.html na pasta do bot.</h1>'
 
 
@@ -224,9 +224,20 @@ def health():
     })
 
 
+def carregar_reprovados_do_dia():
+    data = agora_brasilia().strftime('%Y-%m-%d')
+    path = os.path.join(PASTA_DADOS, f'reprovados_{data}.json')
+    if os.path.exists(path):
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except:
+            return {}
+    return {}
+
+@app.route('/api/reprovados')
+def reprovados():
+    return jsonify(carregar_reprovados_do_dia())
+
 if __name__ == '__main__':
-    print('='*50)
-    print('  API Dashboard Bot Betfair')
-    print('  Acesse: http://SEU_IP_VM:5000')
-    print('='*50)
     app.run(host='0.0.0.0', port=5000, debug=False)
