@@ -11,6 +11,13 @@
     "favorito": "Bromley",
     "liquidez_cs": 47310.75,
     "market_id_cs": "1.256241264",
-    "salvo_em": "15:55:24"
+    "salvo_em": "15:55:24",
+    "placar_final": "2-1",
+    "placar_lay": "0-1",
+    "odd_lay": 22.0,
+    "resultado_geral": "VITORIA",
+    "pnl_estimado": 10.3,
+    "resultado_em": "19:29:48",
+    "fonte_placar": "fallback"
   }
 }
