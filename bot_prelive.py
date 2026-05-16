@@ -30,7 +30,7 @@ LIQUIDEZ_MINIMA_GOALS         = 1000  # reservado para uso futuro
 FUSO_BRASILIA = timezone(timedelta(hours=-3))
 
 # Agendamento
-MINUTOS_ANTES_INICIO    = 5
+MINUTOS_ANTES_INICIO    = 1
 MINUTOS_APOS_INICIO     = 10
 INTERVALO_VERIFICACAO   = 5      # minutos na janela de entrada
 INTERVALO_LONGE         = 15     # minutos para jogos > 30 min antes
