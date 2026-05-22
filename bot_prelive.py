@@ -31,7 +31,7 @@ FUSO_BRASILIA = timezone(timedelta(hours=-3))
 
 # Agendamento
 MINUTOS_ANTES_INICIO    = 5
-MINUTOS_APOS_INICIO     = 10
+MINUTOS_APOS_INICIO     = 15
 INTERVALO_VERIFICACAO   = 5      # minutos na janela de entrada
 INTERVALO_LONGE         = 15     # minutos para jogos > 30 min antes
 LIMIAR_JANELA_ENTRADA   = 30     # minutos: abaixo disso usa intervalo curto
@@ -43,7 +43,7 @@ HORA_HEARTBEAT           = 8    # hora do heartbeat diario (Brasilia)
 ODD_10_MINIMA = 0
 ODD_10_MAXIMA = 25.0
 ODD_01_MINIMA = 0
-ODD_01_MAXIMA = 25.0
+ODD_01_MAXIMA = 20.0
 
 # Filtros Match Odds
 ODD_FAVORITO_MAX = 2.20
@@ -55,6 +55,10 @@ ODD_OVER15_MAXIMA = 1.35
 # Filtros Ambas Marcam (BTTS)
 ODD_BTTS_MINIMA = 1.55
 ODD_BTTS_MAXIMA = 2.30
+
+# Filtro de entrada
+APENAS_LAY_01 = True  # True = so entra no LAY 0-1, ignora LAY 1-0
+APENAS_LAY_10 = False  # True = so entra no LAY 1-0, ignora LAY 0-1
 
 # Reconexao automatica
 MAX_ERROS_CONSECUTIVOS = 5
@@ -122,6 +126,46 @@ def carregar_aprovados_do_dia() -> dict:
         except Exception as e:
             log.warning(f'Erro ao carregar aprovados: {e}')
     return {}
+
+
+def arquivo_historico() -> str:
+    data = datetime.now(FUSO_BRASILIA).strftime('%Y-%m-%d')
+    return os.path.join(PASTA_DADOS, f'historico_{data}.json')
+
+
+def salvar_historico_completo(info: dict, aprovado: bool, motivos: list = None):
+    """Salva TODOS os jogos analisados com suas odds para backtest futuro."""
+    path = arquivo_historico()
+    try:
+        if os.path.exists(path):
+            with open(path, 'r', encoding='utf-8') as f:
+                historico = json.load(f)
+        else:
+            historico = []
+
+        historico.append({
+            'event_id':            info.get('event_id', ''),
+            'nome_jogo':           info.get('nome_jogo', ''),
+            'competition':         info.get('competition', ''),
+            'horario':             info.get('horario', '--:--'),
+            'aprovado':            aprovado,
+            'motivos':             motivos or [],
+            'odd_01':              info.get('odd_01'),
+            'odd_10':              info.get('odd_10'),
+            'odd_favorito':        info.get('odd_favorito'),
+            'favorito':            info.get('favorito', ''),
+            'odd_over15':          info.get('odd_over15'),
+            'odd_btts':            info.get('odd_btts'),
+            'liquidez_disponivel': info.get('liquidez_disponivel', 0),
+            'liquidez_total':      info.get('liquidez_total', 0),
+            'minutos':             info.get('minutos', 0),
+            'analisado_em':        datetime.now(FUSO_BRASILIA).strftime('%H:%M:%S'),
+        })
+
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(historico, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        log.warning(f'  Erro ao salvar historico: {e}')
 
 
 def salvar_aprovado(info: dict):
@@ -953,14 +997,8 @@ def analisar_jogo(event_id: str, nome_jogo: str, minutos: float, market_id_cs_hi
     odd_10 = get_odd_runner(runners_cs_book, runners_cs_map, '1 - 0')
     odd_01 = get_odd_runner(runners_cs_book, runners_cs_map, '0 - 1')
 
-    if not odd_10:
-        resultado['motivo_reprovacao'].append('Sem odd 1-0')
-        return resultado
     if not odd_01:
         resultado['motivo_reprovacao'].append('Sem odd 0-1')
-        return resultado
-    if not (ODD_10_MINIMA <= odd_10 <= ODD_10_MAXIMA):
-        resultado['motivo_reprovacao'].append(f'Odd 1-0 fora faixa: {odd_10}')
         return resultado
     if not (ODD_01_MINIMA <= odd_01 <= ODD_01_MAXIMA):
         resultado['motivo_reprovacao'].append(f'Odd 0-1 fora faixa: {odd_01}')
@@ -1014,6 +1052,12 @@ def formatar_alerta(info: dict) -> str:
     btts_str   = f"Ambas Marcam @ *{info['odd_btts']:.2f}*" if info.get('odd_btts') else 'BTTS: N/A'
     minutos    = info['minutos']
     tempo_str  = f'⏰ *Inicia em:* {minutos} min' if minutos >= 0 else f'🔴 *Ao vivo:* {abs(minutos)} min de jogo'
+    if APENAS_LAY_01:
+        lays_str = f'🔴 LAY *0-1* @ {info["odd_01"]:.2f} _(filtro: apenas 0-1)_'
+    elif APENAS_LAY_10:
+        lays_str = f'🔴 LAY *1-0* @ {info["odd_10"]:.2f} _(filtro: apenas 1-0)_'
+    else:
+        lays_str = f'🔴 LAY *1-0* @ {info["odd_10"]:.2f}\n🔴 LAY *0-1* @ {info["odd_01"]:.2f}'
     return (
         f'🚨 *PRE-LIVE ALERT*\n'
         f'━━━━━━━━━━━━━━━━━━━━\n'
@@ -1022,8 +1066,7 @@ def formatar_alerta(info: dict) -> str:
         f'{tempo_str}\n'
         f'━━━━━━━━━━━━━━━━━━━━\n'
         f'🎯 *ESTRATEGIA: LAY Correct Score*\n'
-        f'🔴 LAY *1-0* @ {info["odd_10"]:.2f}\n'
-        f'🔴 LAY *0-1* @ {info["odd_01"]:.2f}\n'
+        f'{lays_str}\n'
         f'━━━━━━━━━━━━━━━━━━━━\n'
         f'📊 *FILTROS CONFIRMADOS*\n'
         f'⭐ Favorito: {info.get("favorito", "")} @ {info.get("odd_favorito", 0):.2f}\n'
@@ -1257,25 +1300,7 @@ def rodar_bot():
                 )
                 log.info('  💓 Heartbeat enviado')
 
-            # ── Melhoria 5: Heartbeat diario as 8h ──────────────────────
-            if hora_atual == HORA_HEARTBEAT and ultimo_heartbeat != data_hoje:
-                ultimo_heartbeat = data_hoje
-                aprovados_hoje   = carregar_aprovados_do_dia()
-                agendados        = sum(1 for d in agendador.jogos.values() if d['estado'] == 'aguardando')
-                vitorias_hoje    = sum(1 for i in aprovados_hoje.values() if i.get('resultado_geral') == 'VITORIA')
-                derrotas_hoje    = sum(1 for i in aprovados_hoje.values() if i.get('resultado_geral') == 'PERDA')
-                pendentes_hoje   = sum(1 for i in aprovados_hoje.values() if not i.get('resultado_geral'))
-                pnl_hoje         = sum(i.get('pnl_estimado', 0) or 0 for i in aprovados_hoje.values())
-                enviar_mensagem(
-                    f'💓 *Bot ativo — Bom dia!*\n'
-                    f'━━━━━━━━━━━━━━━━━━━━\n'
-                    f'📅 {agora_br.strftime("%d/%m/%Y %H:%M")} (Brasília)\n'
-                    f'📋 Jogos agendados hoje: *{agendados}*\n'
-                    f'✅ Aprovados ontem: *{len(aprovados_hoje)}* '
-                    f'({vitorias_hoje}V/{derrotas_hoje}D/{pendentes_hoje}P)\n'
-                    f'⏱ Uptime: {stats.resumo_telegram().split(chr(10))[2]}'
-                )
-                log.info('  💓 Heartbeat enviado')
+
 
             # ── Melhoria 4: Resultado automatico a cada 30min ────────────
             mins_desde_resultado = (agora_utc - ultimo_resultado_auto).total_seconds() / 60
@@ -1286,7 +1311,9 @@ def rodar_bot():
                     if aprovados_agora:
                         novos_resultados = [
                             info for info in aprovados_agora.values()
-                            if info.get('resultado_geral') and not info.get('_telegram_enviado')
+                            if info.get('resultado_geral')
+                            and info.get('placar_final') != 'Indisponivel'
+                            and not info.get('_telegram_enviado')
                         ]
                         for info in novos_resultados:
                             result  = info.get('resultado_geral', '')
@@ -1313,7 +1340,7 @@ def rodar_bot():
                         # Salva flag _telegram_enviado
                         if novos_resultados:
                             resultado_jogos.salvar_aprovados(aprovados_agora)
-                            stats.alertas_movimento += len(novos_resultados)
+                        stats.alertas_movimento += len(novos_resultados)
                 except Exception as e:
                     log.warning(f'  Resultado auto erro: {e}')
 
@@ -1383,6 +1410,7 @@ def rodar_bot():
 
                     enviar_mensagem(formatar_alerta(info))
                     salvar_aprovado(info)
+                    salvar_historico_completo(info, aprovado=True)
                     agendador.marcar_aprovado(event_id)
                     stats.registrar_aprovacao()
 
@@ -1410,29 +1438,7 @@ def rodar_bot():
                         except Exception as e:
                             log.error(f"  Aposta auto erro: {e}")
 
-                    # Aposta automatica
-                    if APOSTAS_DISPONIVEL:
-                        try:
-                            res_aposta = apostas.apostar_jogo_aprovado(info)
-                            sim_tag = " *(SIMULACAO)*" if res_aposta.get("simulado") else ""
-                            if res_aposta.get("status") == "SUCCESS":
-                                enviar_mensagem(
-                                    f"🎰 *APOSTA COLOCADA{sim_tag}*\n"
-                                    f"━━━━━━━━━━━━━━━━━━━━\n"
-                                    f"⚽ " + info["nome_jogo"] + "\n"
-                                    "🔴 LAY " + str(res_aposta["placar_lay"]) + " @ " + str(res_aposta["odd_lay"]) + "\n"
-                                    "💰 Stake: R$" + str(apostas.STAKE_LAY) + "\n"
-                                    "🆔 betId: `" + str(res_aposta["betId"]) + "`"
-                                )
-                            else:
-                                enviar_mensagem(
-                                    f"⚠️ *APOSTA FALHOU{sim_tag}*\n"
-                                    "⚽ " + info["nome_jogo"] + "\n"
-                                    "❌ Motivo: " + str(res_aposta.get("motivo", "?")) + "\n"
-                                    f"_Coloque manualmente._"
-                                )
-                        except Exception as e:
-                            log.error(f"  Aposta auto erro: {e}")
+
 
                     # Melhoria A: monitor de movimento de odds
                     monitor_odds.adicionar(info)
@@ -1452,6 +1458,7 @@ def rodar_bot():
                             horario=horario,
                             motivos=motivos,
                         )
+                        salvar_historico_completo(info, aprovado=False, motivos=motivos)
                         agendador.avancar_verificacao(event_id)
 
                     stats.registrar_reprovacao(motivos)
