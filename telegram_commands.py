@@ -388,6 +388,376 @@ def processar_comandos(agendador, stats, resultado_jogos, carregar_aprovados_do_
                     except:
                         responder(chat_id, 'Valor inválido: ' + valor_f)
 
+        # ── /hoje ─────────────────────────────────────────────────
+        elif texto == '/hoje':
+            try:
+                import json
+                import betfair_client as bf
+
+                agora_br    = datetime.now(FUSO_BRASILIA)
+                inicio      = agora_br.replace(hour=0, minute=0, second=0, microsecond=0)
+                fim         = agora_br.replace(hour=23, minute=59, second=59)
+                inicio_utc  = inicio.astimezone(timezone.utc)
+                fim_utc     = fim.astimezone(timezone.utc)
+                data_hoje2  = agora_br.strftime('%d/%m/%Y')
+
+                responder(chat_id, f'🔍 Buscando jogos para hoje {data_hoje2} e filtrando Over 1.5...')
+
+                rpc_cs = json.dumps({
+                    'jsonrpc': '2.0',
+                    'method': 'SportsAPING/v1.0/listMarketCatalogue',
+                    'params': {
+                        'filter': {
+                            'eventTypeIds': ['1'],
+                            'marketTypeCodes': ['CORRECT_SCORE'],
+                            'marketStartTime': {
+                                'from': inicio_utc.strftime('%Y-%m-%dT%H:%M:%SZ'),
+                                'to':   fim_utc.strftime('%Y-%m-%dT%H:%M:%SZ'),
+                            }
+                        },
+                        'maxResults': '1000',
+                        'marketProjection': ['COMPETITION', 'EVENT', 'MARKET_START_TIME'],
+                    },
+                    'id': 1
+                })
+                mercados_cs = bf.chamar_api(rpc_cs) or []
+
+                vistos = set()
+                eventos_map = {}
+                for m in mercados_cs:
+                    evento   = m.get('event', {})
+                    event_id = evento.get('id')
+                    if not event_id or event_id in vistos:
+                        continue
+                    vistos.add(event_id)
+                    open_date = evento.get('openDate', '')
+                    try:
+                        dt_utc  = datetime.fromisoformat(open_date.replace('Z', '+00:00'))
+                        horario = dt_utc.astimezone(FUSO_BRASILIA).strftime('%H:%M')
+                    except:
+                        horario = '--:--'
+                    comp = m.get('competition', {}).get('name', '')
+                    eventos_map[event_id] = {
+                        'horario':  horario,
+                        'nome':     evento.get('name', ''),
+                        'comp':     comp,
+                        'odd_over': None,
+                    }
+
+                rpc_over = json.dumps({
+                    'jsonrpc': '2.0',
+                    'method': 'SportsAPING/v1.0/listMarketCatalogue',
+                    'params': {
+                        'filter': {
+                            'eventTypeIds': ['1'],
+                            'marketTypeCodes': ['OVER_UNDER_15'],
+                            'marketStartTime': {
+                                'from': inicio_utc.strftime('%Y-%m-%dT%H:%M:%SZ'),
+                                'to':   fim_utc.strftime('%Y-%m-%dT%H:%M:%SZ'),
+                            }
+                        },
+                        'maxResults': '1000',
+                        'marketProjection': ['EVENT', 'MARKET_START_TIME', 'RUNNER_DESCRIPTION'],
+                    },
+                    'id': 2
+                })
+                mercados_over = bf.chamar_api(rpc_over) or []
+
+                over_ids = {}
+                for m in mercados_over:
+                    event_id = m.get('event', {}).get('id')
+                    if event_id in eventos_map:
+                        over_ids[m['marketId']] = event_id
+
+                market_ids = list(over_ids.keys())
+                for i in range(0, len(market_ids), 50):
+                    lote  = market_ids[i:i+50]
+                    books = bf.listar_odds(lote, ['EX_BEST_OFFERS']) or []
+                    for book in books:
+                        mid      = book['marketId']
+                        event_id = over_ids.get(mid)
+                        if not event_id:
+                            continue
+                        mercado_over = next((m for m in mercados_over if m.get('event', {}).get('id') == event_id and m['marketId'] == mid), None)
+                        runners_map  = {}
+                        if mercado_over:
+                            runners_map = {r['selectionId']: r['runnerName'] for r in mercado_over.get('runners', [])}
+                        for runner in book.get('runners', []):
+                            nome_runner = runners_map.get(runner.get('selectionId'), '')
+                            if 'Over' in nome_runner and '1.5' in nome_runner:
+                                back = bf.get_back(runner)
+                                if back:
+                                    eventos_map[event_id]['odd_over'] = back
+                                break
+
+                aprovados = []
+                sem_odd   = []
+                for event_id, info in eventos_map.items():
+                    odd = info['odd_over']
+                    if odd is None:
+                        sem_odd.append(info)
+                    elif 1.10 <= odd <= 1.35:
+                        aprovados.append(info)
+
+                aprovados.sort(key=lambda x: x['horario'])
+
+                if not aprovados:
+                    responder(chat_id,
+                        f'📋 *Jogos hoje — {data_hoje2}*\n'
+                        f'━━━━━━━━━━━━━━━━━━━━\n'
+                        f'Nenhum jogo com Over 1.5 na faixa 1.10–1.35\n'
+                        f'_(odds ainda não disponíveis para {len(sem_odd)} jogos)_'
+                    )
+                else:
+                    linhas = [
+                        f'📅 *Possíveis entradas hoje — {data_hoje2}*',
+                        f'_(Over 1.5 entre 1.10–1.35)_',
+                        f'━━━━━━━━━━━━━━━━━━━━',
+                        f'✅ *{len(aprovados)}* jogos pré-filtrados',
+                        f'⏳ {len(sem_odd)} sem odd disponível ainda\n',
+                    ]
+                    hora_atual = None
+                    for info in aprovados:
+                        if info['horario'][:2] != hora_atual:
+                            hora_atual = info['horario'][:2]
+                            linhas.append(f'🕐 *{hora_atual}h*')
+                        linhas.append(
+                            f'  {info["horario"]} — {info["nome"]} @ O1.5: *{info["odd_over"]}* _[{info["comp"]}]_'
+                        )
+
+                    mensagem = '\n'.join(linhas)
+                    if len(mensagem) > 4000:
+                        partes  = []
+                        bloco   = []
+                        tamanho = 0
+                        for linha in linhas:
+                            if tamanho + len(linha) > 3800:
+                                partes.append('\n'.join(bloco))
+                                bloco   = [linha]
+                                tamanho = len(linha)
+                            else:
+                                bloco.append(linha)
+                                tamanho += len(linha)
+                        if bloco:
+                            partes.append('\n'.join(bloco))
+                        for parte in partes:
+                            responder(chat_id, parte)
+                    else:
+                        responder(chat_id, mensagem)
+
+            except Exception as e:
+                responder(chat_id, f'❌ Erro ao buscar jogos de hoje: {e}')
+
+        # ── /amanha ───────────────────────────────────────────────
+        elif texto == '/amanha':
+            try:
+                import json
+                import betfair_client as bf
+
+                agora_br    = datetime.now(FUSO_BRASILIA)
+                inicio      = (agora_br + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+                fim         = inicio.replace(hour=23, minute=59, second=59)
+                inicio_utc  = inicio.astimezone(timezone.utc)
+                fim_utc     = fim.astimezone(timezone.utc)
+                data_amanha = inicio.strftime('%d/%m/%Y')
+
+                responder(chat_id, f'🔍 Buscando jogos para {data_amanha} e filtrando Over 1.5...')
+
+                # 1) Busca todos os jogos com CS amanha
+                rpc_cs = json.dumps({
+                    'jsonrpc': '2.0',
+                    'method': 'SportsAPING/v1.0/listMarketCatalogue',
+                    'params': {
+                        'filter': {
+                            'eventTypeIds': ['1'],
+                            'marketTypeCodes': ['CORRECT_SCORE'],
+                            'marketStartTime': {
+                                'from': inicio_utc.strftime('%Y-%m-%dT%H:%M:%SZ'),
+                                'to':   fim_utc.strftime('%Y-%m-%dT%H:%M:%SZ'),
+                            }
+                        },
+                        'maxResults': '1000',
+                        'marketProjection': ['COMPETITION', 'EVENT', 'MARKET_START_TIME'],
+                    },
+                    'id': 1
+                })
+                mercados_cs = bf.chamar_api(rpc_cs) or []
+
+                # Monta mapa event_id -> info
+                vistos = set()
+                eventos_map = {}
+                for m in mercados_cs:
+                    evento   = m.get('event', {})
+                    event_id = evento.get('id')
+                    if not event_id or event_id in vistos:
+                        continue
+                    vistos.add(event_id)
+                    open_date = evento.get('openDate', '')
+                    try:
+                        dt_utc  = datetime.fromisoformat(open_date.replace('Z', '+00:00'))
+                        horario = dt_utc.astimezone(FUSO_BRASILIA).strftime('%H:%M')
+                    except:
+                        horario = '--:--'
+                    comp = m.get('competition', {}).get('name', '')
+                    eventos_map[event_id] = {
+                        'horario':  horario,
+                        'nome':     evento.get('name', ''),
+                        'comp':     comp,
+                        'odd_over': None,
+                    }
+
+                # 2) Busca mercados Over 1.5 para os mesmos eventos
+                rpc_over = json.dumps({
+                    'jsonrpc': '2.0',
+                    'method': 'SportsAPING/v1.0/listMarketCatalogue',
+                    'params': {
+                        'filter': {
+                            'eventTypeIds': ['1'],
+                            'marketTypeCodes': ['OVER_UNDER_15'],
+                            'marketStartTime': {
+                                'from': inicio_utc.strftime('%Y-%m-%dT%H:%M:%SZ'),
+                                'to':   fim_utc.strftime('%Y-%m-%dT%H:%M:%SZ'),
+                            }
+                        },
+                        'maxResults': '1000',
+                        'marketProjection': ['EVENT', 'MARKET_START_TIME', 'RUNNER_DESCRIPTION'],
+                    },
+                    'id': 2
+                })
+                mercados_over = bf.chamar_api(rpc_over) or []
+
+                # Filtra so eventos que ja temos no CS
+                over_ids = {}
+                for m in mercados_over:
+                    event_id = m.get('event', {}).get('id')
+                    if event_id in eventos_map:
+                        over_ids[m['marketId']] = event_id
+
+                # 3) Busca odds Over 1.5 em lotes de 50
+                market_ids = list(over_ids.keys())
+                for i in range(0, len(market_ids), 50):
+                    lote  = market_ids[i:i+50]
+                    books = bf.listar_odds(lote, ['EX_BEST_OFFERS']) or []
+                    for book in books:
+                        mid      = book['marketId']
+                        event_id = over_ids.get(mid)
+                        if not event_id:
+                            continue
+                        # Busca runner Over 1.5 Goals pelo nome no catalogo
+                    mercado_over = next((m for m in mercados_over if over_ids.get(book['marketId']) == m.get('event', {}).get('id')), None)
+                    runners_map  = {}
+                    if mercado_over:
+                        runners_map = {r['selectionId']: r['runnerName'] for r in mercado_over.get('runners', [])}
+                    for runner in book.get('runners', []):
+                        nome_runner = runners_map.get(runner.get('selectionId'), '')
+                        if 'Over' in nome_runner and '1.5' in nome_runner:
+                            back = bf.get_back(runner)
+                            if back:
+                                eventos_map[event_id]['odd_over'] = back
+                            break
+
+                # 4) Filtra jogos com Over 1.5 na faixa 1.10-1.35
+                aprovados = []
+                sem_odd   = []
+                for event_id, info in eventos_map.items():
+                    odd = info['odd_over']
+                    if odd is None:
+                        sem_odd.append(info)
+                    elif 1.10 <= odd <= 1.35:
+                        info['odd_over'] = odd
+                        aprovados.append(info)
+
+                aprovados.sort(key=lambda x: x['horario'])
+
+                if not aprovados:
+                    responder(chat_id,
+                        f'📋 *Jogos amanhã — {data_amanha}*\n'
+                        f'━━━━━━━━━━━━━━━━━━━━\n'
+                        f'Nenhum jogo com Over 1.5 na faixa 1.10–1.35\n'
+                        f'_(odds ainda não disponíveis para {len(sem_odd)} jogos)_'
+                    )
+                else:
+                    linhas = [
+                        f'📅 *Possíveis entradas — {data_amanha}*',
+                        f'_(Over 1.5 entre 1.10–1.35)_',
+                        f'━━━━━━━━━━━━━━━━━━━━',
+                        f'✅ *{len(aprovados)}* jogos pré-filtrados',
+                        f'⏳ {len(sem_odd)} sem odd disponível ainda\n',
+                    ]
+                    hora_atual = None
+                    for info in aprovados:
+                        if info['horario'][:2] != hora_atual:
+                            hora_atual = info['horario'][:2]
+                            linhas.append(f'🕐 *{hora_atual}h*')
+                        linhas.append(
+                            f'  {info["horario"]} — {info["nome"]} @ O1.5: *{info["odd_over"]}* _[{info["comp"]}]_'
+                        )
+
+                    mensagem = '\n'.join(linhas)
+                    if len(mensagem) > 4000:
+                        partes  = []
+                        bloco   = []
+                        tamanho = 0
+                        for linha in linhas:
+                            if tamanho + len(linha) > 3800:
+                                partes.append('\n'.join(bloco))
+                                bloco   = [linha]
+                                tamanho = len(linha)
+                            else:
+                                bloco.append(linha)
+                                tamanho += len(linha)
+                        if bloco:
+                            partes.append('\n'.join(bloco))
+                        for parte in partes:
+                            responder(chat_id, parte)
+                    else:
+                        responder(chat_id, mensagem)
+
+            except Exception as e:
+                responder(chat_id, f'❌ Erro ao buscar jogos de amanhã: {e}')
+
+        # ── /backtest ─────────────────────────────────────────────
+        elif texto == '/backtest':
+            try:
+                import glob as _glob
+                pasta = 'dados_bot'
+                arquivos = sorted(_glob.glob(os.path.join(pasta, 'historico_*.json')))
+                if not arquivos:
+                    responder(chat_id, '📊 Nenhum dado de histórico ainda.\n_O bot precisa rodar por alguns dias para acumular dados._')
+                else:
+                    total = aprovados_bt = reprovados_bt = 0
+                    linhas = ['📊 *Histórico de Análises (Backtest)*', '━━━━━━━━━━━━━━━━━━━━']
+                    for arq in arquivos:
+                        data_str = os.path.basename(arq).replace('historico_','').replace('.json','')
+                        with open(arq) as ff:
+                            d = json.load(ff)
+                        ap  = sum(1 for j in d if j.get('aprovado'))
+                        rep = sum(1 for j in d if not j.get('aprovado'))
+                        total += len(d)
+                        aprovados_bt  += ap
+                        reprovados_bt += rep
+                        contagem = {}
+                        for j in d:
+                            if not j.get('aprovado'):
+                                for m in j.get('motivos', []):
+                                    chave = m.split(':')[0].strip()
+                                    contagem[chave] = contagem.get(chave, 0) + 1
+                        top = sorted(contagem.items(), key=lambda x: x[1], reverse=True)[:3]
+                        top_str = ' | '.join(f'{k}: {v}x' for k,v in top) or 'sem dados'
+                        linhas.append(f'📅 *{data_str}* | {len(d)} jogos | {ap} aprov | {rep} reprov')
+                        linhas.append(f'   _{top_str}_')
+                    taxa_aprov = round(aprovados_bt / total * 100, 1) if total else 0
+                    linhas += [
+                        '━━━━━━━━━━━━━━━━━━━━',
+                        f'📈 Total analisados: *{total}*',
+                        f'✅ Aprovados: *{aprovados_bt}* ({taxa_aprov}%)',
+                        f'⛔ Reprovados: *{reprovados_bt}*',
+                        f'_Use esses dados para calibrar os filtros._',
+                    ]
+                    responder(chat_id, '\n'.join(linhas))
+            except Exception as e:
+                responder(chat_id, f'❌ Erro /backtest: {e}')
+
         # ── comando desconhecido ──────────────────────────────────
         elif texto.startswith('/'):
             responder(chat_id,
@@ -404,7 +774,10 @@ def processar_comandos(agendador, stats, resultado_jogos, carregar_aprovados_do_
                 '/mes — resumo do mês atual\n'
                 '/odds [times] — odds LAY de times\n'
                 '/jogo [times] — analisa jogo completo\n'
-                '/setfiltro [filtro] [valor] — altera filtro'
+                '/setfiltro [filtro] [valor] — altera filtro\n'
+                '/amanha — jogos com CS disponíveis amanhã\n'
+                '/hoje — possíveis entradas hoje (Over 1.5)\n'
+                '/backtest — histórico completo de análises'
             )
 
 

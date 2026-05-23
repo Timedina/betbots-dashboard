@@ -91,7 +91,21 @@ def apostar_jogo_aprovado(info: dict) -> dict:
     odd_10 = float(info.get('odd_10') or 0)
     odd_01 = float(info.get('odd_01') or 0)
 
-    if odd_10 >= odd_01:
+    from bot_prelive import APENAS_LAY_01, APENAS_LAY_10
+
+    if APENAS_LAY_01:
+        # Forca LAY 0-1 independente das odds
+        placar_lay  = '0-1'
+        odd_lay     = odd_01
+        nome_runner = '0 - 1'
+        log.info('  [Aposta] Filtro APENAS_LAY_01 ativo: forcando LAY 0-1')
+    elif APENAS_LAY_10:
+        # Forca LAY 1-0 independente das odds
+        placar_lay  = '1-0'
+        odd_lay     = odd_10
+        nome_runner = '1 - 0'
+        log.info('  [Aposta] Filtro APENAS_LAY_10 ativo: forcando LAY 1-0')
+    elif odd_10 >= odd_01:
         placar_lay  = '1-0'
         odd_lay     = odd_10
         nome_runner = '1 - 0'
