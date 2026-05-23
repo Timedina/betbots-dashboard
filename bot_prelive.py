@@ -1,5 +1,5 @@
 import os
-import time 
+import time
 import json
 import logging
 import betfair_client as bf
@@ -75,6 +75,10 @@ INTERVALO_MONITOR_ODDS  = 90     # segundos entre verificacoes pos-aprovacao
 # Melhoria B: Monitoramento de saida
 QUEDA_SAIDA_PERCENTUAL   = 0.20  # odd cai 20%+ -> alerta de saida
 MINUTOS_MONITOR_POS_KICK = 15    # quantos minutos apos o kickoff monitorar
+
+# IA - Analise Gemini (gratuito via Google AI Studio)
+IA_ATIVA  = True                          # False para desativar sem remover o codigo
+IA_MODELO = "gemini-2.0-flash"
 
 # ============================================================
 # LIGAS PERMITIDAS
@@ -159,6 +163,7 @@ def salvar_historico_completo(info: dict, aprovado: bool, motivos: list = None):
             'liquidez_disponivel': info.get('liquidez_disponivel', 0),
             'liquidez_total':      info.get('liquidez_total', 0),
             'minutos':             info.get('minutos', 0),
+            'ia_motivo':           info.get('ia_motivo', ''),
             'analisado_em':        datetime.now(FUSO_BRASILIA).strftime('%H:%M:%S'),
         })
 
@@ -184,6 +189,7 @@ def salvar_aprovado(info: dict):
         'liquidez_total':      info.get('liquidez_total', 0),
         'market_id_cs':        info.get('market_id_cs', ''),
         'runners_cs_map':      info.get('runners_cs_map', {}),
+        'ia_motivo':           info.get('ia_motivo', ''),
         'salvo_em':            datetime.now(FUSO_BRASILIA).strftime('%H:%M:%S'),
     }
     with open(arquivo_do_dia(), 'w', encoding='utf-8') as f:
@@ -261,10 +267,10 @@ def resumo_reprovados_telegram():
     total_tentativas = 0
 
     # Distribuições de odds rejeitadas
-    dist_favorito  = []   # odds do favorito que foram rejeitadas
-    dist_over15    = []   # odds Over 1.5 rejeitadas
-    dist_btts      = []   # odds BTTS rejeitadas
-    dist_liq       = []   # liquidez disponivel rejeitada
+    dist_favorito  = []
+    dist_over15    = []
+    dist_btts      = []
+    dist_liq       = []
 
     for dados in reprovados.values():
         for tent in dados['tentativas']:
@@ -273,7 +279,6 @@ def resumo_reprovados_telegram():
                 chave = motivo.split(':')[0].strip()
                 contagem[chave] = contagem.get(chave, 0) + 1
 
-                # Extrair valor numérico do motivo para distribuição
                 try:
                     valor_str = motivo.split(':')[1].strip().split()[0]
                     valor = float(valor_str.replace('£', '').replace(',', ''))
@@ -301,7 +306,6 @@ def resumo_reprovados_telegram():
         barra = '\u2593' * min(10, n) + '\u2591' * max(0, 10 - n)
         linhas.append(f'`{barra}` {motivo}: *{n}x*')
 
-    # ── Distribuição do favorito ──
     if dist_favorito:
         linhas.append(f'\n━━━━━━━━━━━━━━━━━━━━')
         linhas.append(f'📊 *Distribuição — Favorito rejeitado* (limite atual: {ODD_FAVORITO_MAX})')
@@ -318,7 +322,6 @@ def resumo_reprovados_telegram():
             if n > 0:
                 linhas.append(f'  `{label}`: {n}x')
 
-    # ── Distribuição Over 1.5 ──
     if dist_over15:
         linhas.append(f'\n📊 *Distribuição — Over 1.5 rejeitado* (faixa atual: {ODD_OVER15_MINIMA}–{ODD_OVER15_MAXIMA})')
         faixas = [
@@ -333,7 +336,6 @@ def resumo_reprovados_telegram():
             if n > 0:
                 linhas.append(f'  `{label}`: {n}x')
 
-    # ── Distribuição BTTS ──
     if dist_btts:
         linhas.append(f'\n📊 *Distribuição — BTTS rejeitado* (faixa atual: {ODD_BTTS_MINIMA}–{ODD_BTTS_MAXIMA})')
         faixas = [
@@ -347,7 +349,6 @@ def resumo_reprovados_telegram():
             if n > 0:
                 linhas.append(f'  `{label}`: {n}x')
 
-    # ── Distribuição Liquidez ──
     if dist_liq:
         linhas.append(f'\n📊 *Distribuição — Liquidez CS rejeitada* (mín atual: £{LIQUIDEZ_MINIMA_CS_DISPONIVEL})')
         faixas = [
@@ -445,14 +446,12 @@ class CacheEventos:
 
     def _carregar(self):
         try:
-            # Limpa arquivos de cache de dias anteriores
             import glob
             from datetime import datetime, timezone, timedelta
             hoje = datetime.now(timezone(timedelta(hours=-3))).strftime('%Y-%m-%d')
             for arq in glob.glob(os.path.join(PASTA_DADOS, 'cache_*.json')):
                 if hoje not in arq:
                     os.remove(arq)
-            # Carrega cache do dia atual
             if os.path.exists(self._path()):
                 with open(self._path()) as f:
                     self._pulados = json.load(f)
@@ -486,11 +485,6 @@ cache_eventos = CacheEventos()
 # ============================================================
 
 class MonitorOdds:
-    """
-    Apos um jogo ser aprovado, rastreia as odds de 1-0 e 0-1.
-    - Subida >= MOVIMENTO_SUBIDA_ALERTA: avisa que entrada melhorou
-    - Queda >= MOVIMENTO_QUEDA_ALERTA: avisa que mercado esta indo contra
-    """
     def __init__(self):
         self._monitorados: dict = {}
 
@@ -554,7 +548,6 @@ class MonitorOdds:
                 ref_10 = dados['odd_10_ref']
                 ref_01 = dados['odd_01_ref']
 
-                # Subida: entrada melhorou
                 if not dados['alerta_subida_enviado']:
                     subiu_10 = (odd_10_atual - ref_10) / ref_10 >= MOVIMENTO_SUBIDA_ALERTA
                     subiu_01 = (odd_01_atual - ref_01) / ref_01 >= MOVIMENTO_SUBIDA_ALERTA
@@ -577,7 +570,6 @@ class MonitorOdds:
                         )
                         log.info(f'  💹 Alerta subida: {dados["nome_jogo"]}')
 
-                # Queda: mercado indo contra
                 if not dados['alerta_queda_enviado']:
                     caiu_10 = (ref_10 - odd_10_atual) / ref_10 >= MOVIMENTO_QUEDA_ALERTA
                     caiu_01 = (ref_01 - odd_01_atual) / ref_01 >= MOVIMENTO_QUEDA_ALERTA
@@ -614,11 +606,6 @@ monitor_odds = MonitorOdds()
 # ============================================================
 
 class MonitorSaida:
-    """
-    Monitora jogos aprovados durante os primeiros minutos de jogo.
-    Gatilho 1: queda de odds >= QUEDA_SAIDA_PERCENTUAL
-    Gatilho 2: volume de totalMatched dobra (indicativo de gol)
-    """
     def __init__(self):
         self._monitorados: dict = {}
 
@@ -784,11 +771,6 @@ def tempo_para_inicio(open_date_str: str) -> float:
 
 
 def buscar_todos_jogos_do_dia() -> list:
-    """
-    Nova logica: busca direto pelos mercados CS disponiveis na Betfair BR.
-    Elimina jogos sem mercado CS antes de qualquer analise.
-    Retorna lista no mesmo formato do listEvents para compatibilidade.
-    """
     agora_brasilia      = datetime.now(FUSO_BRASILIA)
     inicio_dia_brasilia = agora_brasilia.replace(hour=0, minute=0, second=0, microsecond=0)
     fim_dia_brasilia    = agora_brasilia.replace(hour=23, minute=59, second=59, microsecond=0)
@@ -815,8 +797,6 @@ def buscar_todos_jogos_do_dia() -> list:
     stats.registrar_chamada_api()
     mercados = bf.chamar_api(rpc) or []
 
-    # Converte para formato compativel com listEvents
-    # Filtra jogos de teste (nome comeca com "Test")
     vistos = set()
     jogos  = []
     for m in mercados:
@@ -913,6 +893,72 @@ def buscar_mercados_restantes_batch(cs_mercado, over15_mercado, btts_mercado) ->
 
 
 # ============================================================
+# IA: ANALISE CLAUDE
+# ============================================================
+
+def consultar_ia(info: dict) -> tuple:
+    """
+    Consulta Gemini Flash para validar o jogo após todos os filtros passarem.
+    Retorna (aprovado: bool, motivo: str)
+    Se a IA estiver indisponível, aprova por padrão para não bloquear o bot.
+    Chave gratuita em: https://aistudio.google.com/apikey
+    """
+    import urllib.request
+    import urllib.error
+
+    prompt = f"""Você é um analista de trading esportivo especialista em lay no Betfair.
+Analise este jogo pré-live e decida se vale entrar com LAY no Correct Score (1-0 e/ou 0-1).
+
+DADOS DO JOGO:
+- Jogo: {info['nome_jogo']}
+- Liga: {info.get('competition', 'N/A')}
+- Minutos para início: {info['minutos']}
+- Favorito: {info.get('favorito', 'N/A')} @ {info.get('odd_favorito', 0):.2f}
+- LAY 1-0: {info.get('odd_10', 0):.2f}
+- LAY 0-1: {info.get('odd_01', 0):.2f}
+- Over 1.5 Goals: {info.get('odd_over15', 'N/A')}
+- Ambas Marcam (BTTS): {info.get('odd_btts', 'N/A')}
+- Liquidez disponível CS: £{info.get('liquidez_disponivel', 0):.0f}
+- Liquidez total CS: £{info.get('liquidez_total', 0):.0f}
+
+CRITÉRIOS DE APROVAÇÃO:
+- Favorito forte (odd baixa) indica jogo desequilibrado, bom para lay CS
+- Over 1.5 baixo (1.10–1.35) indica jogo com tendência de gols, mas cuidado se muito baixo
+- BTTS alto (próximo de 2.30) pode indicar risco de ambas marcarem
+- Liquidez alta (>£300 disponível) = mercado saudável
+- LAY 0-1 ideal entre 8–16, LAY 1-0 ideal entre 6–14
+- Jogos de ligas fracas ou nomes incomuns merecem mais cautela
+
+Responda APENAS em JSON, sem texto extra:
+{{"aprovado": true/false, "motivo": "explicação em uma linha"}}"""
+
+    try:
+        api_key = os.environ.get("GEMINI_API_KEY", "")
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{IA_MODELO}:generateContent?key={api_key}"
+
+        payload = json.dumps({
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"maxOutputTokens": 100, "temperature": 0.1}
+        }).encode("utf-8")
+
+        req = urllib.request.Request(
+            url,
+            data=payload,
+            headers={"Content-Type": "application/json"}
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+            texto = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+            texto = texto.replace("```json", "").replace("```", "").strip()
+            resultado = json.loads(texto)
+            return resultado.get("aprovado", True), resultado.get("motivo", "")
+
+    except Exception as e:
+        log.warning(f"  🤖 IA indisponível, aprovando sem filtro IA: {e}")
+        return True, "IA indisponível"
+
+
+# ============================================================
 # ANALISE PRINCIPAL
 # ============================================================
 
@@ -925,6 +971,7 @@ def analisar_jogo(event_id: str, nome_jogo: str, minutos: float, market_id_cs_hi
         'event_id': event_id,
         'competition': '',
         'horario': '--:--',
+        'ia_motivo': '',
     }
 
     if cache_eventos.deve_pular(event_id):
@@ -1039,6 +1086,15 @@ def analisar_jogo(event_id: str, nome_jogo: str, minutos: float, market_id_cs_hi
     else:
         resultado['odd_btts'] = None
 
+    # ── Filtro IA ──────────────────────────────────────────────────
+    if IA_ATIVA:
+        ia_ok, ia_motivo = consultar_ia(resultado)
+        resultado['ia_motivo'] = ia_motivo
+        log.info(f'  🤖 IA: {"✅" if ia_ok else "⛔"} {ia_motivo}')
+        if not ia_ok:
+            resultado['motivo_reprovacao'].append(f'IA recusou: {ia_motivo}')
+            return resultado
+
     resultado['aprovado'] = True
     return resultado
 
@@ -1052,6 +1108,7 @@ def formatar_alerta(info: dict) -> str:
     btts_str   = f"Ambas Marcam @ *{info['odd_btts']:.2f}*" if info.get('odd_btts') else 'BTTS: N/A'
     minutos    = info['minutos']
     tempo_str  = f'⏰ *Inicia em:* {minutos} min' if minutos >= 0 else f'🔴 *Ao vivo:* {abs(minutos)} min de jogo'
+    ia_str     = f'\n🤖 _IA: {info["ia_motivo"]}_' if info.get('ia_motivo') and info['ia_motivo'] != 'IA indisponível' else ''
     if APENAS_LAY_01:
         lays_str = f'🔴 LAY *0-1* @ {info["odd_01"]:.2f} _(filtro: apenas 0-1)_'
     elif APENAS_LAY_10:
@@ -1076,7 +1133,7 @@ def formatar_alerta(info: dict) -> str:
         f'| Total: £{info.get("liquidez_total", 0):,.0f}\n'
         f'━━━━━━━━━━━━━━━━━━━━\n'
         f'🆔 `{info.get("market_id_cs", "")}`\n'
-        f'📡 _Monitorando odds e saída automaticamente_'
+        f'📡 _Monitorando odds e saída automaticamente_{ia_str}'
     )
 
 
@@ -1244,6 +1301,7 @@ def rodar_bot():
     agendador.carregar_jogos_do_dia()
     imprimir_agenda_do_dia(agendador)
 
+    ia_status = '✅ ativa' if IA_ATIVA else '⛔ desativada'
     ligas_msg = '\n'.join(f'  • {l}' for l in LIGAS_PERMITIDAS) if LIGAS_PERMITIDAS else '  • Todas as ligas'
     enviar_mensagem(
         f'🤖 *Bot Pre-Live LAY 0x1/1x0 iniciado!*\n'
@@ -1251,14 +1309,15 @@ def rodar_bot():
         f'📅 *Jogos hoje:* {len(agendador.jogos)}\n'
         f'⏱ Janela: {MINUTOS_ANTES_INICIO} min antes até {MINUTOS_APOS_INICIO} min após início\n'
         f'🔄 Intervalo dinâmico: {INTERVALO_LONGE}min (longe) / {INTERVALO_VERIFICACAO}min (janela)\n'
+        f'🧠 Análise IA: {ia_status}\n'
         f'📡 Monitor de odds e saída: *ativo*'
     )
     gerar_resumo_diario()
 
     ultima_recarga        = datetime.now(timezone.utc)
-    ultimo_heartbeat      = None   # controla heartbeat diario das 8h
-    ultimo_resumo_noturno  = None   # controla envio do resumo das 23h
-    ultimo_resultado_auto = datetime.now(timezone.utc)  # controla verificacao automatica de resultados
+    ultimo_heartbeat      = None
+    ultimo_resumo_noturno  = None
+    ultimo_resultado_auto = datetime.now(timezone.utc)
 
     while True:
         try:
@@ -1272,7 +1331,6 @@ def rodar_bot():
                 if novos > 0:
                     imprimir_agenda_do_dia(agendador)
 
-            # Resumo noturno automático às 23h (horário de Brasília)
             agora_br   = datetime.now(FUSO_BRASILIA)
             data_hoje  = agora_br.strftime('%Y-%m-%d')
             hora_atual = agora_br.hour
@@ -1280,7 +1338,7 @@ def rodar_bot():
                 ultimo_resumo_noturno = data_hoje
                 log.info('  📋 Enviando resumo noturno de reprovações...')
                 resumo_reprovados_telegram()
-            # ── Melhoria 5: Heartbeat diario as 8h ──────────────────────
+
             if hora_atual == HORA_HEARTBEAT and ultimo_heartbeat != data_hoje:
                 ultimo_heartbeat = data_hoje
                 aprovados_hoje   = carregar_aprovados_do_dia()
@@ -1300,9 +1358,6 @@ def rodar_bot():
                 )
                 log.info('  💓 Heartbeat enviado')
 
-
-
-            # ── Melhoria 4: Resultado automatico a cada 30min ────────────
             mins_desde_resultado = (agora_utc - ultimo_resultado_auto).total_seconds() / 60
             if mins_desde_resultado >= INTERVALO_RESULTADO_MIN and RESULTADO_DISPONIVEL:
                 ultimo_resultado_auto = agora_utc
@@ -1337,17 +1392,12 @@ def rodar_bot():
                             info['_telegram_enviado'] = True
                             log.info(f'  {emoji} Resultado auto: {info["nome_jogo"]} | {placar} | {result}')
 
-                        # Salva flag _telegram_enviado
                         if novos_resultados:
                             resultado_jogos.salvar_aprovados(aprovados_agora)
                         stats.alertas_movimento += len(novos_resultados)
                 except Exception as e:
                     log.warning(f'  Resultado auto erro: {e}')
 
-
-
-            # Melhoria A + B: rodar monitores a cada ciclo
-            # ── Comandos Telegram ─────────────────────────────────────
             if COMANDOS_DISPONIVEL:
                 try:
                     telegram_commands.processar_comandos(
@@ -1406,7 +1456,8 @@ def rodar_bot():
                     info['open_date'] = dados['open_date']
 
                     log.info(f'  ✅ APROVADO! 1-0@{info["odd_10"]:.2f} | '
-                             f'0-1@{info["odd_01"]:.2f} | Fav@{info["odd_favorito"]:.2f}')
+                             f'0-1@{info["odd_01"]:.2f} | Fav@{info["odd_favorito"]:.2f} | '
+                             f'IA: {info.get("ia_motivo", "N/A")}')
 
                     enviar_mensagem(formatar_alerta(info))
                     salvar_aprovado(info)
@@ -1414,7 +1465,6 @@ def rodar_bot():
                     agendador.marcar_aprovado(event_id)
                     stats.registrar_aprovacao()
 
-                    # Aposta automatica
                     if APOSTAS_DISPONIVEL:
                         try:
                             res_aposta = apostas.apostar_jogo_aprovado(info)
@@ -1438,11 +1488,7 @@ def rodar_bot():
                         except Exception as e:
                             log.error(f"  Aposta auto erro: {e}")
 
-
-
-                    # Melhoria A: monitor de movimento de odds
                     monitor_odds.adicionar(info)
-                    # Melhoria B: monitor de saida
                     monitor_saida.adicionar(info)
 
                 else:
@@ -1450,7 +1496,6 @@ def rodar_bot():
                     log.info(f'  ⛔ {" | ".join(motivos)}')
 
                     if not any('Cache' in m for m in motivos):
-                        # Melhoria C: persistir reprovacao no JSON do dia
                         registrar_reprovacao_persistente(
                             event_id=event_id,
                             nome_jogo=nome_jogo,
