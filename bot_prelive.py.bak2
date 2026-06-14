@@ -47,18 +47,14 @@ ODD_01_MAXIMA = 20.0
 
 # Filtros Match Odds
 ODD_FAVORITO_MAX = 2.20
-ODD_FAVORITO_MAX_COPA = 2.50  # limite especial para jogos da Copa do Mundo
-ODD_FAVORITO_MAX_COPA = 2.50  # limite especial para jogos da Copa do Mundo
 
 # Filtros Over 1.5
 ODD_OVER15_MINIMA = 1.10
 ODD_OVER15_MAXIMA = 1.35
-ODD_OVER15_MAXIMA_COPA = 1.50  # limite especial para jogos da Copa do Mundo
 
 # Filtros Ambas Marcam (BTTS)
 ODD_BTTS_MINIMA = 1.55
 ODD_BTTS_MAXIMA = 2.30
-ODD_BTTS_MAXIMA_COPA = 2.60  # limite especial para jogos da Copa do Mundo
 
 # Filtro de entrada
 APENAS_LAY_01 = True  # True = so entra no LAY 0-1, ignora LAY 1-0
@@ -439,18 +435,9 @@ stats = Estatisticas()
 # CACHE DE JOGOS DESCARTAVEIS
 # ============================================================
 
-# Motivos que bloqueiam permanentemente (estruturais)
-CACHE_MOTIVOS_PERMANENTES = [
-    'Sem Correct Score',
-    'Sem Match Odds',
-    'Liga nao permitida',
-]
-# Motivos que expiram em N minutos (filtros de odds podem mudar)
-CACHE_TTL_MINUTOS = 30
-
 class CacheEventos:
     def __init__(self):
-        self._pulados: dict = {}  # {event_id: {motivo, expira_em}}
+        self._pulados: dict = {}
         self._carregar()
 
     def _path(self):
@@ -480,39 +467,13 @@ class CacheEventos:
         except:
             pass
 
-    def _permanente(self, motivo: str) -> bool:
-        return any(m in motivo for m in CACHE_MOTIVOS_PERMANENTES)
-
     def deve_pular(self, event_id: str) -> bool:
-        if event_id not in self._pulados:
-            return False
-        entrada = self._pulados[event_id]
-        # Suporte ao formato antigo (string simples)
-        if isinstance(entrada, str):
-            return True
-        # Formato novo: verifica expiracao
-        expira_em = entrada.get('expira_em')
-        if expira_em is None:
-            return True  # permanente
-        from datetime import datetime, timezone
-        if datetime.now(timezone.utc).isoformat() < expira_em:
-            return True  # ainda dentro do TTL
-        # Expirou — remove do cache
-        del self._pulados[event_id]
-        self._salvar()
-        log.debug(f'  Cache expirado: {event_id}')
-        return False
+        return event_id in self._pulados
 
     def registrar(self, event_id: str, motivo: str):
-        from datetime import datetime, timezone, timedelta
-        if self._permanente(motivo):
-            self._pulados[event_id] = {'motivo': motivo, 'expira_em': None}
-            log.debug(f'  Cache permanente: {event_id} — {motivo}')
-        else:
-            expira = (datetime.now(timezone.utc) + timedelta(minutes=CACHE_TTL_MINUTOS)).isoformat()
-            self._pulados[event_id] = {'motivo': motivo, 'expira_em': expira}
-            log.debug(f'  Cache TTL {CACHE_TTL_MINUTOS}min: {event_id} — {motivo}')
+        self._pulados[event_id] = motivo
         self._salvar()
+        log.debug(f'  Cache: {event_id} bloqueado — {motivo}')
 
     def total(self) -> int:
         return len(self._pulados)
@@ -887,7 +848,7 @@ def listar_mercados_filtrado(event_id: str) -> list:
     return bf.listar_mercados(event_id, tipos=MARKET_TYPES_FILTRO)
 
 
-def verificar_favorito_rapido(event_id: str, mercados: list, competition: str = '') -> tuple:
+def verificar_favorito_rapido(event_id: str, mercados: list) -> tuple:
     mo_mercado = next((m for m in mercados if m['marketName'] == 'Match Odds'), None)
     if not mo_mercado:
         return False, None, None, None
@@ -912,8 +873,7 @@ def verificar_favorito_rapido(event_id: str, mercados: list, competition: str = 
             odd_favorito  = back
             nome_favorito = nome_r
 
-    fav_max = ODD_FAVORITO_MAX_COPA if 'World Cup' in competition else ODD_FAVORITO_MAX
-    if not odd_favorito or odd_favorito > fav_max:
+    if not odd_favorito or odd_favorito > ODD_FAVORITO_MAX:
         return False, odd_favorito, nome_favorito, None
 
     return True, odd_favorito, nome_favorito, book_mo
@@ -1049,7 +1009,7 @@ def analisar_jogo(event_id: str, nome_jogo: str, minutos: float, market_id_cs_hi
             cache_eventos.registrar(event_id, motivo)
             return resultado
 
-    fav_ok, odd_favorito, nome_favorito, book_mo = verificar_favorito_rapido(event_id, mercados, competition)
+    fav_ok, odd_favorito, nome_favorito, book_mo = verificar_favorito_rapido(event_id, mercados)
     if not fav_ok:
         resultado['motivo_reprovacao'].append(f'Favorito fora faixa: {odd_favorito}')
         return resultado
@@ -1112,8 +1072,7 @@ def analisar_jogo(event_id: str, nome_jogo: str, minutos: float, market_id_cs_hi
             runners_over15_map = {r['selectionId']: r['runnerName'] for r in over15_mercado.get('runners', [])}
             odd_over15 = get_odd_back_runner(book_over15.get('runners', []), runners_over15_map, 'Over 1.5 Goals')
             resultado['odd_over15'] = odd_over15
-            over15_max = ODD_OVER15_MAXIMA_COPA if 'World Cup' in competition else ODD_OVER15_MAXIMA
-            if odd_over15 and not (ODD_OVER15_MINIMA <= odd_over15 <= over15_max):
+            if odd_over15 and not (ODD_OVER15_MINIMA <= odd_over15 <= ODD_OVER15_MAXIMA):
                 resultado['motivo_reprovacao'].append(f'Over 1.5 fora faixa: {odd_over15}')
                 return resultado
         else:
@@ -1127,8 +1086,7 @@ def analisar_jogo(event_id: str, nome_jogo: str, minutos: float, market_id_cs_hi
             runners_btts_map = {r['selectionId']: r['runnerName'] for r in btts_mercado.get('runners', [])}
             odd_btts = get_odd_back_runner(book_btts.get('runners', []), runners_btts_map, 'Yes')
             resultado['odd_btts'] = odd_btts
-            btts_max = ODD_BTTS_MAXIMA_COPA if 'World Cup' in competition else ODD_BTTS_MAXIMA
-            if odd_btts and not (ODD_BTTS_MINIMA <= odd_btts <= btts_max):
+            if odd_btts and not (ODD_BTTS_MINIMA <= odd_btts <= ODD_BTTS_MAXIMA):
                 resultado['motivo_reprovacao'].append(f'BTTS fora faixa: {odd_btts}')
                 return resultado
         else:
@@ -1255,24 +1213,13 @@ class AgendadorJogos:
             limite = inicio_utc + timedelta(minutes=MINUTOS_APOS_INICIO)
             if datetime.now(timezone.utc) > limite:
                 continue
-            competition_nome = jogo.get('event', {}).get('competition', {}).get('name', '') if isinstance(jogo.get('event'), dict) else ''
             self.jogos[event_id] = {
                 'nome_jogo':           nome_jogo,
                 'open_date':           open_date,
                 'estado':              'aguardando',
                 'proxima_verificacao': proxima,
                 'market_id_cs':        jogo.get('market_id_cs', ''),
-                'competition':         competition_nome,
             }
-            if 'World Cup' in competition_nome:
-                horario_br = inicio_utc.astimezone(FUSO_BRASILIA).strftime('%H:%M')
-                enviar_mensagem(
-                    f'🏆 *Jogo da Copa detectado!*\n'
-                    f'⚽ {nome_jogo}\n'
-                    f'🕐 {horario_br} (Brasília)\n'
-                    f'_Monitorando para entrada..._'
-                )
-                log.info(f'  🏆 Copa detectada: {nome_jogo} às {horario_br}')
             novos += 1
 
         log.info(f'Jogos agendados: {novos} novos | Total ativo: {len(self.jogos)}')
@@ -1516,9 +1463,9 @@ def rodar_bot():
                     info['horario']   = horario
                     info['open_date'] = dados['open_date']
 
-                    log.info(f'  ✅ APROVADO! {info.get("competition", "")} | {info["nome_jogo"]} | '
-                             f'1-0@{info["odd_10"]:.2f} | 0-1@{info["odd_01"]:.2f} | '
-                             f'Fav@{info["odd_favorito"]:.2f} | IA: {info.get("ia_motivo", "N/A")}')
+                    log.info(f'  ✅ APROVADO! 1-0@{info["odd_10"]:.2f} | '
+                             f'0-1@{info["odd_01"]:.2f} | Fav@{info["odd_favorito"]:.2f} | '
+                             f'IA: {info.get("ia_motivo", "N/A")}')
 
                     enviar_mensagem(formatar_alerta(info))
                     salvar_aprovado(info)
