@@ -59,6 +59,7 @@ ODD_BTTS_MAXIMA = 2.30
 # Filtro de entrada
 APENAS_LAY_01 = True  # True = so entra no LAY 0-1, ignora LAY 1-0
 APENAS_LAY_10 = False  # True = so entra no LAY 1-0, ignora LAY 0-1
+RAZAO_ODD_MAXIMA = 1.8  # max razao odd_01/odd_10 para entrar
 
 # Reconexao automatica
 MAX_ERROS_CONSECUTIVOS = 5
@@ -1050,6 +1051,13 @@ def analisar_jogo(event_id: str, nome_jogo: str, minutos: float, market_id_cs_hi
     if not (ODD_01_MINIMA <= odd_01 <= ODD_01_MAXIMA):
         resultado['motivo_reprovacao'].append(f'Odd 0-1 fora faixa: {odd_01}')
         return resultado
+
+    # Filtro de razao entre odds (evita desequilibrio extremo)
+    if odd_10 and odd_10 > 0:
+        razao = round(odd_01 / odd_10, 2)
+        if razao > RAZAO_ODD_MAXIMA:
+            resultado['motivo_reprovacao'].append(f'Razao odd_01/odd_10 alta: {razao} (max {RAZAO_ODD_MAXIMA})')
+            return resultado
 
     resultado['odd_10']              = odd_10
     resultado['odd_01']              = odd_01
