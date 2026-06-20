@@ -159,28 +159,31 @@ def processar_comandos(agendador, stats, resultado_jogos, carregar_aprovados_do_
 
         # ── /filtros ──────────────────────────────────────────────
         elif texto == '/filtros':
+            from bot_prelive import APENAS_LAY_01, APENAS_LAY_10, RAZAO_ODD_MAXIMA, MINUTOS_APOS_INICIO, MINUTOS_ANTES_INICIO
+            modo = 'Apenas LAY 0-1' if APENAS_LAY_01 else ('Apenas LAY 1-0' if APENAS_LAY_10 else 'LAY 0-1 e 1-0')
             responder(chat_id,
                 f'⚙️ *Filtros Ativos*\n'
                 f'━━━━━━━━━━━━━━━━━━━━\n'
-                f'🎯 *Correct Score LAY*\n'
-                f'  1-0: {ODD_10_MINIMA} — {ODD_10_MAXIMA}\n'
-                f'  0-1: {ODD_01_MINIMA} — {ODD_01_MAXIMA}\n'
+                f'🎯 *Modo:* {modo}\n'
                 f'━━━━━━━━━━━━━━━━━━━━\n'
-                f'⭐ *Favorito (Match Odds)*\n'
+                f'📊 *Correct Score LAY 0-1*\n'
+                f'  Faixa: {ODD_01_MINIMA} — {ODD_01_MAXIMA}\n'
+                f'  Razão máx: {RAZAO_ODD_MAXIMA}\n'
+                f'━━━━━━━━━━━━━━━━━━━━\n'
+                f'⭐ *Favorito*\n'
                 f'  Máximo: {ODD_FAVORITO_MAX}\n'
                 f'━━━━━━━━━━━━━━━━━━━━\n'
                 f'📈 *Over 1.5*\n'
                 f'  Faixa: {ODD_OVER15_MINIMA} — {ODD_OVER15_MAXIMA}\n'
                 f'━━━━━━━━━━━━━━━━━━━━\n'
-                f'🤝 *BTTS (Ambas Marcam)*\n'
+                f'🤝 *BTTS*\n'
                 f'  Faixa: {ODD_BTTS_MINIMA} — {ODD_BTTS_MAXIMA}\n'
                 f'━━━━━━━━━━━━━━━━━━━━\n'
-                f'💧 *Liquidez CS*\n'
-                f'  Disponível mín: £{LIQUIDEZ_MINIMA_CS_DISPONIVEL}\n'
-                f'  Total mín: £{LIQUIDEZ_MINIMA_CS_TOTAL}'
+                f'💧 *Liquidez CS mín:* £{LIQUIDEZ_MINIMA_CS_DISPONIVEL}\n'
+                f'⏱ *Janela:* {MINUTOS_ANTES_INICIO}min antes até {MINUTOS_APOS_INICIO}min após'
             )
 
-        # ── /reprovados ───────────────────────────────────────────
+                # ── /reprovados ───────────────────────────────────────────
         elif texto == '/reprovados':
             reprovados = carregar_reprovados_do_dia()
             if not reprovados:

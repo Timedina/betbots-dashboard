@@ -35,7 +35,7 @@ MINUTOS_APOS_INICIO     = 15
 INTERVALO_VERIFICACAO   = 5      # minutos na janela de entrada
 INTERVALO_LONGE         = 15     # minutos para jogos > 30 min antes
 LIMIAR_JANELA_ENTRADA   = 30     # minutos: abaixo disso usa intervalo curto
-INTERVALO_RECARGA_HORAS = 1
+INTERVALO_RECARGA_HORAS = 0.25
 INTERVALO_RESULTADO_MIN  = 30   # minutos entre verificacoes de resultado pos-kickoff
 HORA_HEARTBEAT           = 8    # hora do heartbeat diario (Brasilia)
 
@@ -43,11 +43,10 @@ HORA_HEARTBEAT           = 8    # hora do heartbeat diario (Brasilia)
 ODD_10_MINIMA = 0
 ODD_10_MAXIMA = 25.0
 ODD_01_MINIMA = 0
-ODD_01_MAXIMA = 20.0
+ODD_01_MAXIMA = 18.0  # reduzido apos backtest: zero derrotas ate 18.0 vs 91.9% acerto geral
 
 # Filtros Match Odds
 ODD_FAVORITO_MAX = 2.20
-ODD_FAVORITO_MAX_COPA = 2.50  # limite especial para jogos da Copa do Mundo
 ODD_FAVORITO_MAX_COPA = 2.50  # limite especial para jogos da Copa do Mundo
 
 # Filtros Over 1.5
@@ -1021,8 +1020,10 @@ def analisar_jogo(event_id: str, nome_jogo: str, minutos: float, market_id_cs_hi
         return resultado
 
     mercados = listar_mercados_filtrado(event_id)
-    if not mercados and not market_id_cs_hint:
-        resultado['motivo_reprovacao'].append('Sem mercados')
+    if not mercados:
+        # Falha temporaria na API (rate limit/timeout) — NAO cacheia permanente,
+        # apenas reprova essa tentativa para reanalisar no proximo ciclo
+        resultado['motivo_reprovacao'].append('Sem mercados (falha temporaria API)')
         return resultado
 
     cs_mercado     = next((m for m in mercados if m['marketName'] == 'Correct Score'), None)
@@ -1092,6 +1093,10 @@ def analisar_jogo(event_id: str, nome_jogo: str, minutos: float, market_id_cs_hi
         resultado['motivo_reprovacao'].append(f'Odd 0-1 fora faixa: {odd_01}')
         return resultado
 
+    # Barra o jogo se LAY 1-0 tiver odd maior que LAY 0-1 (so entra quando 0-1 e o mais vantajoso)
+    if odd_10 and odd_10 > odd_01:
+        resultado['motivo_reprovacao'].append(f'LAY 1-0 com odd maior que 0-1: {odd_10} > {odd_01}')
+        return resultado
     # Filtro de razao entre odds (evita desequilibrio extremo)
     if odd_10 and odd_10 > 0:
         razao = round(odd_01 / odd_10, 2)
@@ -1255,7 +1260,7 @@ class AgendadorJogos:
             limite = inicio_utc + timedelta(minutes=MINUTOS_APOS_INICIO)
             if datetime.now(timezone.utc) > limite:
                 continue
-            competition_nome = jogo.get('event', {}).get('competition', {}).get('name', '') if isinstance(jogo.get('event'), dict) else ''
+            competition_nome = jogo.get('competition', {}).get('name', '') if isinstance(jogo.get('competition'), dict) else jogo.get('competition', '')
             self.jogos[event_id] = {
                 'nome_jogo':           nome_jogo,
                 'open_date':           open_date,

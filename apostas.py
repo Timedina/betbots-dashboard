@@ -16,8 +16,22 @@ from datetime import datetime, timezone, timedelta
 import betfair_client as bf
 
 FUSO_BRASILIA  = timezone(timedelta(hours=-3))
-STAKE_LAY      = 11.0   # £ minimo Betfair
+STAKE_LAY      = 11.0   # £ minimo Betfair (usado como fallback)
+LIABILITY_FIXA = 100.0  # £ perda maxima aceita por aposta (novo modelo de stake)
+STAKE_MINIMO   = 2.0    # £ minimo permitido pela Betfair
 MODO_SIMULACAO = True  # ← mude para False quando quiser apostar de verdade
+
+
+def calcular_stake_por_liability(odd: float, liability: float = LIABILITY_FIXA) -> float:
+    """
+    Calcula o stake necessario para que a perda maxima (liability) seja sempre a mesma,
+    independente da odd. Stake = liability / (odd - 1).
+    Isso evita que apostas em odds altas gerem prejuizo desproporcional.
+    """
+    if odd <= 1:
+        return STAKE_MINIMO
+    stake = liability / (odd - 1)
+    return max(stake, STAKE_MINIMO)
 
 log = logging.getLogger('bot')
 
@@ -132,7 +146,9 @@ def apostar_jogo_aprovado(info: dict) -> dict:
     modo = 'SIMULACAO' if MODO_SIMULACAO else 'REAL'
     log.info(f'  [Aposta-{modo}] LAY {placar_lay} @ {odd_lay} | sel={selection_id} | market={market_id}')
 
-    resultado = place_lay(market_id, selection_id, odd_lay, STAKE_LAY)
+    stake_calculado = calcular_stake_por_liability(odd_lay)
+    log.info(f'  [Aposta] Liability fixa £{LIABILITY_FIXA:.0f} -> stake calculado: £{stake_calculado:.2f} (odd {odd_lay})')
+    resultado = place_lay(market_id, selection_id, odd_lay, stake_calculado)
     resultado['placar_lay']   = placar_lay
     resultado['odd_lay']      = odd_lay
     resultado['selection_id'] = selection_id
