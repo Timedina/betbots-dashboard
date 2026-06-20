@@ -1536,12 +1536,14 @@ def rodar_bot():
                             res_aposta = apostas.apostar_jogo_aprovado(info)
                             sim_tag = " *(SIMULACAO)*" if res_aposta.get("simulado") else ""
                             if res_aposta.get("status") == "SUCCESS":
+                                stake_real = res_aposta.get("stake", apostas.STAKE_LAY)
+                                liability  = round(stake_real * (res_aposta["odd_lay"] - 1), 2)
                                 enviar_mensagem(
                                     f"🎰 *APOSTA COLOCADA{sim_tag}*\n"
                                     f"━━━━━━━━━━━━━━━━━━━━\n"
                                     f"⚽ " + info["nome_jogo"] + "\n"
                                     "🔴 LAY " + str(res_aposta["placar_lay"]) + " @ " + str(res_aposta["odd_lay"]) + "\n"
-                                    "💰 Stake: R$" + str(apostas.STAKE_LAY) + "\n"
+                                    "💰 Stake: £" + f"{stake_real:.2f}" + " | Liability: £" + f"{liability:.2f}" + "\n"
                                     "🆔 betId: `" + str(res_aposta["betId"]) + "`"
                                 )
                             else:

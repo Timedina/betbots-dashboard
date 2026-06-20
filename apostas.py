@@ -151,6 +151,7 @@ def apostar_jogo_aprovado(info: dict) -> dict:
     resultado = place_lay(market_id, selection_id, odd_lay, stake_calculado)
     resultado['placar_lay']   = placar_lay
     resultado['odd_lay']      = odd_lay
+    resultado['stake']        = stake_calculado
     resultado['selection_id'] = selection_id
     resultado['nome_jogo']    = info.get('nome_jogo', '')
     resultado['apostado_em']  = datetime.now(FUSO_BRASILIA).strftime('%H:%M:%S')
