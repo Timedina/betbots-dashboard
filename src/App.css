@@ -207,3 +207,99 @@ td {
   color: #6b6b66;
   margin-top: 1rem;
 }
+.filtros-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.filtro-grupo {
+  background: #16181c;
+  border-radius: 12px;
+  border: 0.5px solid #2a2c30;
+  padding: 1rem 1.25rem;
+}
+
+.filtro-grupo-titulo {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 12px;
+  color: #e8e8e6;
+}
+
+.filtro-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 0;
+  border-top: 0.5px solid #2a2c30;
+}
+
+.filtro-row:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.filtro-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 200px;
+}
+
+.filtro-label span:first-child {
+  font-size: 13px;
+  color: #e8e8e6;
+}
+
+.filtro-desc {
+  font-size: 11px;
+  color: #6b6b66;
+}
+
+.filtro-inputs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.filtro-input {
+  width: 80px;
+  background: #0d0f12;
+  border: 0.5px solid #3a3c40;
+  color: #e8e8e6;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
+.filtro-input-copa {
+  border-color: #378ade;
+}
+
+.filtro-copa-label {
+  font-size: 11px;
+  color: #888780;
+}
+
+.btn-salvar {
+  font-size: 12px;
+  background: transparent;
+  border: 0.5px solid #3a3c40;
+  color: #6b6b66;
+  border-radius: 6px;
+  padding: 6px 10px;
+  cursor: not-allowed;
+}
+
+.btn-salvar-ativo {
+  border-color: #4ade80;
+  color: #4ade80;
+  cursor: pointer;
+}
+
+.btn-salvar-ativo:hover {
+  background: #173404;
+}
