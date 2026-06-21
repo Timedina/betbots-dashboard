@@ -31,6 +31,17 @@ async function sbPatch(path, body) {
   return res.json();
 }
 
+async function chatComIA(mensagem, botId, historico) {
+  const res = await fetch("/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mensagem, bot_id: botId, historico }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || `Erro ${res.status}`);
+  return data.resposta;
+}
+
 function fmtHora(ts) {
   if (!ts) return "--:--";
   const d = new Date(ts);
@@ -92,6 +103,93 @@ const FILTROS_GRUPOS = [
     campos: [{ chave: "LIABILITY_FIXA", label: "Perda máxima aceita por aposta (£)" }],
   },
 ];
+
+const SUGESTOES_CHAT = [
+  "Como esta o PnL desse bot?",
+  "Qual filtro esta barrando mais jogos?",
+  "Sugira um ajuste nos filtros atuais",
+  "Quais foram as ultimas apostas perdidas?",
+];
+
+function ChatIA({ botId }) {
+  const [mensagens, setMensagens] = useState([]);
+  const [input, setInput] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const [erro, setErro] = useState("");
+
+  const enviar = async (textoForcado) => {
+    const texto = (textoForcado ?? input).trim();
+    if (!texto || enviando) return;
+
+    setErro("");
+    const novaMsgUser = { role: "user", content: texto };
+    const historicoAtual = [...mensagens, novaMsgUser];
+    setMensagens(historicoAtual);
+    setInput("");
+    setEnviando(true);
+
+    try {
+      const resposta = await chatComIA(texto, botId, mensagens);
+      setMensagens([...historicoAtual, { role: "assistant", content: resposta }]);
+    } catch (e) {
+      setErro(e.message);
+    } finally {
+      setEnviando(false);
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      enviar();
+    }
+  };
+
+  return (
+    <div className="chat-wrap">
+      <div className="chat-messages">
+        {mensagens.length === 0 && (
+          <div className="chat-empty">
+            <p>Pergunte sobre o desempenho do bot, filtros atuais ou peca
+            sugestoes de ajuste. A IA tem acesso aos dados reais do banco.</p>
+            <div className="chat-suggestions">
+              {SUGESTOES_CHAT.map((s) => (
+                <button key={s} className="chat-suggestion" onClick={() => enviar(s)}>
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {mensagens.map((m, i) => (
+          <div
+            key={i}
+            className={`chat-msg ${m.role === "user" ? "chat-msg-user" : "chat-msg-assistant"}`}
+          >
+            {m.content}
+          </div>
+        ))}
+        {enviando && (
+          <div className="chat-msg chat-msg-loading">Pensando...</div>
+        )}
+      </div>
+      {erro && <div className="error-box">{erro}</div>}
+      <div className="chat-input-row">
+        <textarea
+          className="chat-input"
+          rows={1}
+          placeholder="Pergunte algo sobre esse bot..."
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+        />
+        <button className="chat-send" onClick={() => enviar()} disabled={enviando || !input.trim()}>
+          Enviar
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function CampoFiltro({ meta, linha, onSalvar, salvando }) {
   const [valor, setValor] = useState(linha?.valor ?? "");
@@ -263,6 +361,12 @@ export default function App() {
         >
           Filtros
         </button>
+        <button
+          className={tab === "chat" ? "tab tab-active" : "tab"}
+          onClick={() => setTab("chat")}
+        >
+          Chat IA
+        </button>
       </div>
 
       {tab === "analises" && (
@@ -370,7 +474,9 @@ export default function App() {
         </div>
       )}
 
-      {tab !== "filtros" && (
+      {tab === "chat" && bot && <ChatIA botId={bot.id} />}
+
+      {tab !== "filtros" && tab !== "chat" && (
         <p className="footer-note">
           Atualiza automaticamente a cada 30s. Dados vem direto do Supabase
           (somente leitura).
