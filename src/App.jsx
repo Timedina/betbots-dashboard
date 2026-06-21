@@ -254,24 +254,48 @@ export default function App() {
   const [analises, setAnalises] = useState([]);
   const [apostas, setApostas] = useState([]);
   const [filtros, setFiltros] = useState([]);
-  const [bot, setBot] = useState(null);
+  const [todosBots, setTodosBots] = useState([]);
+  const [botId, setBotId] = useState(
+    () => localStorage.getItem("betbots_bot_id") || BOT_ID
+  );
   const [tab, setTab] = useState("analises");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [lastUpdate, setLastUpdate] = useState(null);
   const [salvandoChave, setSalvandoChave] = useState(null);
 
+  const bot = todosBots.find((b) => b.id === botId) || null;
+
+  const trocarBot = (novoId) => {
+    setBotId(novoId);
+    localStorage.setItem("betbots_bot_id", novoId);
+  };
+
   const carregar = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const [bots, an, ap, fl] = await Promise.all([
-        sb("bots?select=*&limit=1"),
-        sb("analises?select=*&order=analisado_em.desc&limit=50"),
-        sb("apostas?select=*&order=apostado_em.desc&limit=50"),
-        sb(`filtros?select=*&bot_id=eq.${BOT_ID}`),
+      const bots = await sb("bots?select=*&order=criado_em.asc");
+      setTodosBots(bots);
+
+      const idAtivo = bots.find((b) => b.id === botId) ? botId : bots[0]?.id;
+      if (idAtivo && idAtivo !== botId) {
+        setBotId(idAtivo);
+      }
+
+      if (!idAtivo) {
+        setAnalises([]);
+        setApostas([]);
+        setFiltros([]);
+        setLastUpdate(new Date());
+        return;
+      }
+
+      const [an, ap, fl] = await Promise.all([
+        sb(`analises?select=*&bot_id=eq.${idAtivo}&order=analisado_em.desc&limit=50`),
+        sb(`apostas?select=*&bot_id=eq.${idAtivo}&order=apostado_em.desc&limit=50`),
+        sb(`filtros?select=*&bot_id=eq.${idAtivo}`),
       ]);
-      setBot(bots[0] || null);
       setAnalises(an);
       setApostas(ap);
       setFiltros(fl);
@@ -281,7 +305,7 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [botId]);
 
   useEffect(() => {
     carregar();
@@ -296,7 +320,7 @@ export default function App() {
       if (valorCopa !== null && valorCopa !== "") {
         body.valor_copa = parseFloat(valorCopa);
       }
-      await sbPatch(`filtros?chave=eq.${chave}&bot_id=eq.${BOT_ID}`, body);
+      await sbPatch(`filtros?chave=eq.${chave}&bot_id=eq.${botId}`, body);
       setFiltros((prev) =>
         prev.map((f) => (f.chave === chave ? { ...f, ...body } : f))
       );
@@ -321,7 +345,21 @@ export default function App() {
       <div className="header">
         <div className="header-left">
           <span className={`dot ${bot?.ativo ? "dot-on" : "dot-off"}`} />
-          <span className="bot-name">{bot?.nome || "Carregando..."}</span>
+          {todosBots.length > 1 ? (
+            <select
+              className="bot-select"
+              value={botId || ""}
+              onChange={(e) => trocarBot(e.target.value)}
+            >
+              {todosBots.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.nome}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span className="bot-name">{bot?.nome || "Carregando..."}</span>
+          )}
           {bot?.modo_simulacao && <span className="tag">simulacao</span>}
         </div>
         <div className="header-right">

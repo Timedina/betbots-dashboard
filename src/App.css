@@ -424,3 +424,23 @@ td {
   border-color: #378ade;
   color: #e8e8e6;
 }
+
+.bot-select {
+  background: #16181c;
+  border: 0.5px solid #3a3c40;
+  color: #e8e8e6;
+  font-size: 15px;
+  font-weight: 600;
+  border-radius: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.bot-select:hover {
+  border-color: #378ade;
+}
+
+.bot-select:focus {
+  outline: none;
+  border-color: #378ade;
+}
