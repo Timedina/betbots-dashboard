@@ -1,4 +1,3 @@
-cat > src/App.jsx << 'APPJSX_EOF'
 import { useState, useEffect, useCallback } from "react";
 import "./App.css";
 
