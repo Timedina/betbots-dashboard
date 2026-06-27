@@ -15,6 +15,7 @@ except ImportError:
     COMANDOS_DISPONIVEL = False
     APOSTAS_DISPONIVEL = False
 from telegram_client import enviar_mensagem
+import supabase_integration as sb
 from datetime import datetime, timezone, timedelta
 
 
@@ -67,6 +68,36 @@ RAZAO_ODD_MAXIMA = 1.8  # max razao odd_01/odd_10 para entrar
 # Reconexao automatica
 MAX_ERROS_CONSECUTIVOS = 5
 ESPERA_APOS_ERRO       = 30
+
+
+def aplicar_filtros_supabase():
+    """Sobrescreve as constantes de filtro com os valores configurados no Supabase
+    (editaveis pelo dashboard). Se o Supabase estiver fora do ar ou um filtro nao
+    existir la, mantem o valor fixo atual sem quebrar nada."""
+    global ODD_10_MINIMA, ODD_10_MAXIMA, ODD_01_MINIMA, ODD_01_MAXIMA
+    global ODD_FAVORITO_MAX, ODD_FAVORITO_MAX_COPA
+    global ODD_OVER15_MINIMA, ODD_OVER15_MAXIMA, ODD_OVER15_MAXIMA_COPA
+    global ODD_BTTS_MINIMA, ODD_BTTS_MAXIMA, ODD_BTTS_MAXIMA_COPA
+    global RAZAO_ODD_MAXIMA, LIQUIDEZ_MINIMA_CS_DISPONIVEL
+
+    f = sb.carregar_filtros()
+    if not f:
+        return
+    ODD_10_MINIMA = f.get("ODD_10_MINIMA", ODD_10_MINIMA)
+    ODD_10_MAXIMA = f.get("ODD_10_MAXIMA", ODD_10_MAXIMA)
+    ODD_01_MINIMA = f.get("ODD_01_MINIMA", ODD_01_MINIMA)
+    ODD_01_MAXIMA = f.get("ODD_01_MAXIMA", ODD_01_MAXIMA)
+    ODD_FAVORITO_MAX = f.get("ODD_FAVORITO_MAX", ODD_FAVORITO_MAX)
+    ODD_FAVORITO_MAX_COPA = f.get("ODD_FAVORITO_MAX_COPA", ODD_FAVORITO_MAX_COPA)
+    ODD_OVER15_MINIMA = f.get("ODD_OVER15_MINIMA", ODD_OVER15_MINIMA)
+    ODD_OVER15_MAXIMA = f.get("ODD_OVER15_MAXIMA", ODD_OVER15_MAXIMA)
+    ODD_OVER15_MAXIMA_COPA = f.get("ODD_OVER15_MAXIMA_COPA", ODD_OVER15_MAXIMA_COPA)
+    ODD_BTTS_MINIMA = f.get("ODD_BTTS_MINIMA", ODD_BTTS_MINIMA)
+    ODD_BTTS_MAXIMA = f.get("ODD_BTTS_MAXIMA", ODD_BTTS_MAXIMA)
+    ODD_BTTS_MAXIMA_COPA = f.get("ODD_BTTS_MAXIMA_COPA", ODD_BTTS_MAXIMA_COPA)
+    RAZAO_ODD_MAXIMA = f.get("RAZAO_ODD_MAXIMA", RAZAO_ODD_MAXIMA)
+    LIQUIDEZ_MINIMA_CS_DISPONIVEL = f.get("LIQUIDEZ_MINIMA_CS_DISPONIVEL", LIQUIDEZ_MINIMA_CS_DISPONIVEL)
+    apostas.LIABILITY_FIXA = f.get("LIABILITY_FIXA", apostas.LIABILITY_FIXA)
 
 # Tipos de mercado permitidos
 MARKET_TYPES_FILTRO = ['MATCH_ODDS', 'CORRECT_SCORE', 'OVER_UNDER_15', 'BOTH_TEAMS_TO_SCORE']
@@ -173,6 +204,8 @@ def salvar_historico_completo(info: dict, aprovado: bool, motivos: list = None):
 
         with open(path, 'w', encoding='utf-8') as f:
             json.dump(historico, f, ensure_ascii=False, indent=2)
+
+        sb.registrar_analise_supabase(info, aprovado, motivos)
     except Exception as e:
         log.warning(f'  Erro ao salvar historico: {e}')
 
@@ -1021,9 +1054,11 @@ def analisar_jogo(event_id: str, nome_jogo: str, minutos: float, market_id_cs_hi
 
     mercados = listar_mercados_filtrado(event_id)
     if not mercados:
-        # Falha temporaria na API (rate limit/timeout) — NAO cacheia permanente,
-        # apenas reprova essa tentativa para reanalisar no proximo ciclo
-        resultado['motivo_reprovacao'].append('Sem mercados (falha temporaria API)')
+        # Falha temporaria na API (rate limit/timeout) — cacheia com TTL curto
+        # para nao retentar a cada 5 minutos e sobrecarregar a API da Betfair
+        motivo_temp = 'Sem mercados (falha temporaria API)'
+        resultado['motivo_reprovacao'].append(motivo_temp)
+        cache_eventos.registrar(event_id, motivo_temp)  # expira em CACHE_TTL_MINUTOS
         return resultado
 
     cs_mercado     = next((m for m in mercados if m['marketName'] == 'Correct Score'), None)
@@ -1387,6 +1422,7 @@ def rodar_bot():
 
     while True:
         try:
+            aplicar_filtros_supabase()
             log.info(f'{agendador.status()} | ✅ {stats.jogos_aprovados} aprovados | '
                      f'🔍 {stats.jogos_analisados} analisados | 📡 {stats.chamadas_api} chamadas API')
 
@@ -1546,6 +1582,7 @@ def rodar_bot():
                                     "💰 Stake: £" + f"{stake_real:.2f}" + " | Liability: £" + f"{liability:.2f}" + "\n"
                                     "🆔 betId: `" + str(res_aposta["betId"]) + "`"
                                 )
+                                sb.registrar_aposta_supabase(info, res_aposta)
                             else:
                                 enviar_mensagem(
                                     f"⚠️ *APOSTA FALHOU{sim_tag}*\n"
