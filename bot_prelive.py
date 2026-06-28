@@ -1493,6 +1493,12 @@ def rodar_bot():
                             )
                             info['_telegram_enviado'] = True
                             log.info(f'  {emoji} Resultado auto: {info["nome_jogo"]} | {placar} | {result}')
+                            sb.atualizar_resultado_aposta_supabase(
+                                event_id=info.get('event_id', ''),
+                                resultado_geral=result,
+                                placar_final=placar,
+                                pnl=pnl
+                            )
 
                         if novos_resultados:
                             resultado_jogos.salvar_aprovados(aprovados_agora)

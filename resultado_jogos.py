@@ -8,6 +8,7 @@ import json
 import os
 from datetime import datetime, timezone, timedelta
 import betfair_client as bf
+import supabase_integration as sb
 
 FUSO_BRASILIA = timezone(timedelta(hours=-3))
 PASTA_DADOS   = 'dados_bot'
@@ -111,10 +112,27 @@ def determinar_resultado_lay(placar_final: str, info_jogo: dict) -> dict:
 
     odd_10 = float(info_jogo.get('odd_10') or 0)
     odd_01 = float(info_jogo.get('odd_01') or 0)
-    stake    = 11
+    # Usa liability fixa se disponivel, senao stake gravado, senao 11 como fallback
+    odd_lay_gravada   = float(info_jogo.get('odd_lay') or 0)
+    liability_fixa    = float(info_jogo.get('liability') or 0)
+    stake_gravado     = float(info_jogo.get('stake') or 0)
+    if liability_fixa > 0 and odd_lay_gravada > 1:
+        stake = stake_gravado if stake_gravado > 0 else liability_fixa / (odd_lay_gravada - 1)
+    elif stake_gravado > 0:
+        stake = stake_gravado
+    else:
+        stake = 11
     comissao = 0.0636
 
-    if odd_10 >= odd_01:
+    # Respeita placar_lay ja gravado (APENAS_LAY_01 etc), senao escolhe pela odd
+    placar_lay_gravado = info_jogo.get('placar_lay')
+    if placar_lay_gravado == '1-0' and odd_10 > 0:
+        placar_lay = '1-0'
+        odd_lay    = odd_lay_gravada if odd_lay_gravada > 0 else odd_10
+    elif placar_lay_gravado == '0-1' and odd_01 > 0:
+        placar_lay = '0-1'
+        odd_lay    = odd_lay_gravada if odd_lay_gravada > 0 else odd_01
+    elif odd_10 >= odd_01:
         placar_lay = '1-0'
         odd_lay    = odd_10
     else:
@@ -184,6 +202,12 @@ def atualizar_resultados_do_dia(data_str=None, verbose=True):
         info['pnl_estimado']     = resultado_lay['pnl_estimado']
         info['resultado_em']     = datetime.now(FUSO_BRASILIA).strftime('%H:%M:%S')
         info['fonte_placar']     = res.get('fonte', 'desconhecida')
+        sb.atualizar_resultado_aposta_supabase(
+            event_id,
+            resultado_lay['resultado_geral'],
+            placar_final or 'Indisponivel',
+            resultado_lay.get('pnl_estimado') or 0,
+        )
         atualizados += 1
 
         if verbose:
