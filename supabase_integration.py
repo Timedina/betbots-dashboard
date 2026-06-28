@@ -45,6 +45,7 @@ def registrar_analise_supabase(info: dict, aprovado: bool, motivos: list = None)
             'odd_btts':            info.get('odd_btts'),
             'liquidez_disponivel': info.get('liquidez_disponivel', 0),
             'liquidez_total':      info.get('liquidez_total', 0),
+            'minuto':              info.get('minuto') or info.get('minutos'),
             'ia_motivo':           info.get('ia_motivo', ''),
         }).execute()
     except Exception as e:

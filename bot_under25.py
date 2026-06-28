@@ -148,16 +148,16 @@ def verificar_entradas(filtros):
         log.info(f"  {nome_jogo} | min={minuto} | odd={odd:.2f} | liq=£{liq:.0f}")
         if not (filtros["ODD_MINIMA"] <= odd <= filtros["ODD_MAXIMA"]):
             log.info(f"    Odd fora do intervalo [{filtros['ODD_MINIMA']}, {filtros['ODD_MAXIMA']}]")
-            sb.registrar_analise_supabase({"event_id": market_id, "nome_jogo": nome_jogo, "competition": competition}, aprovado=False, motivos=[f"Odd {odd:.2f} fora do intervalo [{filtros['ODD_MINIMA']}, {filtros['ODD_MAXIMA']}]"])
+            sb.registrar_analise_supabase({"event_id": market_id, "nome_jogo": nome_jogo, "competition": competition, "minuto": minuto}, aprovado=False, motivos=[f"Odd {odd:.2f} fora do intervalo [{filtros['ODD_MINIMA']}, {filtros['ODD_MAXIMA']}]"])
             continue
         if liq < filtros["LIQUIDEZ_MINIMA"]:
             log.info(f"    Liquidez £{liq:.0f} < minimo £{filtros['LIQUIDEZ_MINIMA']:.0f}")
-            sb.registrar_analise_supabase({"event_id": market_id, "nome_jogo": nome_jogo, "competition": competition}, aprovado=False, motivos=[f"Liquidez £{liq:.0f} < minimo £{filtros['LIQUIDEZ_MINIMA']:.0f}"])
+            sb.registrar_analise_supabase({"event_id": market_id, "nome_jogo": nome_jogo, "competition": competition, "minuto": minuto}, aprovado=False, motivos=[f"Liquidez £{liq:.0f} < minimo £{filtros['LIQUIDEZ_MINIMA']:.0f}"])
             continue
         stake = filtros["STAKE_FIXO"]
         log.info(f"    ENTRADA — stake=£{stake} @ {odd:.2f}")
         apostas_ativas[market_id] = {"nome_jogo": nome_jogo, "competition": competition, "odd_entrada": odd, "stake": stake, "entrada_em": time.time(), "minuto_entrada": minuto, "under_sel_id": under_sel_id}
-        sb.registrar_analise_supabase({"event_id": market_id, "nome_jogo": nome_jogo, "competition": competition}, aprovado=True, motivos=[f"odd={odd:.2f}", f"min={minuto}"])
+        sb.registrar_analise_supabase({"event_id": market_id, "nome_jogo": nome_jogo, "competition": competition, "minuto": minuto}, aprovado=True, motivos=[f"odd={odd:.2f}", f"min={minuto}"])
         enviar_mensagem(formatar_entrada(nome_jogo, competition, odd, stake, minuto, market_id))
 
 def verificar_saidas(filtros):

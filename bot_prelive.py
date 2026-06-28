@@ -478,7 +478,7 @@ CACHE_MOTIVOS_PERMANENTES = [
     'Liga nao permitida',
 ]
 # Motivos que expiram em N minutos (filtros de odds podem mudar)
-CACHE_TTL_MINUTOS = 30
+CACHE_TTL_MINUTOS = 10
 
 class CacheEventos:
     def __init__(self):
