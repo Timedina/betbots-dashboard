@@ -27,6 +27,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 log = logging.getLogger("bot_under25")
 apostas_ativas = {}
 heartbeat_enviado_em = None
+primeira_vez_visto = {}  # market_id -> timestamp primeira vez visto
 
 def get_filtros():
     f = sb.carregar_filtros()
@@ -41,8 +42,10 @@ def get_filtros():
     }
 
 def buscar_mercados_under25_ao_vivo():
-    rpc = json.dumps({"jsonrpc":"2.0","method":"SportsAPING/v1.0/listMarketCatalogue","params":{"filter":{"eventTypeIds":["1"],"marketTypeCodes":["OVER_UNDER_25"],"inPlayOnly":True},"maxResults":"200","marketProjection":["COMPETITION","EVENT","RUNNER_DESCRIPTION"]},"id":1})
+    rpc = json.dumps({"jsonrpc":"2.0","method":"SportsAPING/v1.0/listMarketCatalogue","params":{"filter":{"eventTypeIds":["1"],"marketTypeCodes":["OVER_UNDER_25"],"inPlayOnly":True},"maxResults":"200","marketProjection":["COMPETITION","EVENT","RUNNER_DESCRIPTION","MARKET_START_TIME"]},"id":1})
     mercados = bf.chamar_api(rpc) or []
+    from datetime import datetime, timezone
+    agora = datetime.now(timezone.utc)
     for m in mercados:
         runners = m.get("runners", [])
         under_id = None
@@ -51,6 +54,12 @@ def buscar_mercados_under25_ao_vivo():
                 under_id = r.get("selectionId")
                 break
         m["_under_selection_id"] = under_id
+        start_str = m.get("marketStartTime", "")
+        try:
+            start = datetime.fromisoformat(start_str.replace("Z", "+00:00"))
+            m["_minuto"] = max(0, int((agora - start).total_seconds() / 60))
+        except Exception:
+            m["_minuto"] = 999
     return mercados
 
 def obter_odd_e_liquidez_under(market_id, selection_id=None):
@@ -71,8 +80,22 @@ def obter_minuto_jogo(market_id):
     rpc = json.dumps({"jsonrpc":"2.0","method":"SportsAPING/v1.0/listMarketBook","params":{"marketIds":[market_id],"priceProjection":{"priceData":[]}},"id":1})
     livros = bf.chamar_api(rpc) or []
     if not livros:
-        return 0
-    return int((livros[0].get("timeElapsed") or 0) // 60)
+        return 999
+    livro = livros[0]
+    elapsed = livro.get("timeElapsed")
+    if elapsed is not None:
+        return int(elapsed // 60)
+    # fallback: calcula pelo horario de inicio do mercado
+    start_str = livro.get("marketStartTime") or livro.get("openDate")
+    if start_str:
+        from datetime import datetime, timezone
+        try:
+            start = datetime.fromisoformat(start_str.replace("Z", "+00:00"))
+            minutos = (datetime.now(timezone.utc) - start).total_seconds() / 60
+            return max(0, int(minutos))
+        except Exception:
+            pass
+    return 999
 
 def formatar_entrada(jogo, competition, odd, stake, minuto, market_id):
     return (
@@ -113,10 +136,9 @@ def verificar_entradas(filtros):
         under_sel_id = m.get("_under_selection_id")
         if market_id in apostas_ativas:
             continue
-        minuto = obter_minuto_jogo(market_id)
+        minuto = m.get("_minuto", 999)
         if minuto > filtros["ENTRADA_MINUTOS_MAX"]:
-            log.info(f"  {nome_jogo} — min {minuto} > max {filtros['ENTRADA_MINUTOS_MAX']}, skip")
-            sb.registrar_analise_supabase({"event_id": market_id, "nome_jogo": nome_jogo, "competition": competition}, aprovado=False, motivos=[f"Minuto {minuto} > max {filtros['ENTRADA_MINUTOS_MAX']}"])
+            log.info(f"  {nome_jogo} - min {minuto} > max {filtros['ENTRADA_MINUTOS_MAX']}, skip")
             continue
         odd, liq = obter_odd_e_liquidez_under(market_id, under_sel_id)
         if odd is None:
