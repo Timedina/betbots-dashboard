@@ -67,11 +67,11 @@ function fmtHora(ts) {
   });
 }
 
-function MetricCard({ label, value }) {
+function MetricCard({ label, value, color }) {
   return (
     <div className="card">
       <p className="card-label">{label}</p>
-      <p className="card-value">{value}</p>
+      <p className="card-value" style={color ? {color} : {}}>{value}</p>
     </div>
   );
 }
@@ -648,6 +648,13 @@ export default function App() {
   const analisadosHoje = analises.filter((a) => (a.analisado_em || "").startsWith(hoje));
   const aprovadosHoje = analisadosHoje.filter((a) => a.aprovado);
   const taxa = analisadosHoje.length ? Math.round((aprovadosHoje.length / analisadosHoje.length) * 100) : 0;
+  const apostasComResultado = apostas.filter((a) => a.status !== "PENDENTE");
+  const apostasHoje = apostasComResultado.filter((a) => (a.apostado_em || "").startsWith(hoje));
+  const pnlHoje = apostasHoje.reduce((acc, a) => acc + (Number(a.pnl) || 0), 0);
+  const pnlTotal = apostasComResultado.reduce((acc, a) => acc + (Number(a.pnl) || 0), 0);
+  const vitorias = apostasComResultado.filter((a) => a.status === "VITORIA").length;
+  const derrotas = apostasComResultado.filter((a) => a.status === "PERDA").length;
+  const taxaAcerto = apostasComResultado.length ? Math.round((vitorias / apostasComResultado.length) * 100) : 0;
 
   const ABAS = [
     { id: "analises", label: "Analises" },
@@ -682,11 +689,18 @@ export default function App() {
       {error && <div className="error-box">{error}</div>}
 
       {tab !== "estrategias" && (
-        <div className="metrics">
-          <MetricCard label="Analisados hoje" value={analisadosHoje.length} />
-          <MetricCard label="Aprovados hoje" value={aprovadosHoje.length} />
-          <MetricCard label="Taxa de aprovacao" value={`${taxa}%`} />
-        </div>
+        <>
+          <div className="metrics">
+            <MetricCard label="Analisados hoje" value={analisadosHoje.length} />
+            <MetricCard label="Aprovados hoje" value={aprovadosHoje.length} />
+            <MetricCard label="Taxa de aprovacao" value={`${taxa}%`} />
+          </div>
+          <div className="metrics" style={{"marginTop": "8px"}}>
+            <MetricCard label="PnL hoje" value={`${pnlHoje >= 0 ? "+" : ""}${pnlHoje.toFixed(2)}u`} color={pnlHoje >= 0 ? "#4ade80" : "#f09595"} />
+            <MetricCard label="PnL total" value={`${pnlTotal >= 0 ? "+" : ""}${pnlTotal.toFixed(2)}u`} color={pnlTotal >= 0 ? "#4ade80" : "#f09595"} />
+            <MetricCard label="Acerto apostas" value={`${vitorias}V / ${derrotas}D (${taxaAcerto}%)`} color={taxaAcerto >= 90 ? "#4ade80" : taxaAcerto >= 75 ? "#378ade" : "#f09595"} />
+          </div>
+        </>
       )}
 
       <div className="tabs">
