@@ -120,32 +120,6 @@ const FILTROS_GRUPOS = [
   },
 ];
 
-const FILTROS_LABELS = {
-  ENTRADA_MINUTOS_MAX: { label: "Entrar ate quantos minutos de jogo", tipo: "numero" },
-  ODD_MINIMA:          { label: "Odd minima de entrada", tipo: "numero" },
-  ODD_MAXIMA:          { label: "Odd maxima de entrada", tipo: "numero" },
-  LIQUIDEZ_MINIMA:     { label: "Liquidez minima no mercado (£)", tipo: "numero" },
-  STAKE_FIXO:          { label: "Stake fixo (R$)", tipo: "numero" },
-  SAIDA_MINUTOS:       { label: "Sair apos quantos minutos da entrada", tipo: "numero" },
-  SAIDA_LUCRO_PCT:     { label: "Sair com quanto % de lucro", tipo: "numero" },
-  SAIDA_TIPO:          { label: "Regra de saida", tipo: "texto" },
-  MERCADO:             { label: "Mercado", tipo: "texto" },
-  DIRECAO:             { label: "Direcao da aposta", tipo: "texto" },
-  TEMPO_ENTRADA:       { label: "Tempo de jogo para operar", tipo: "texto" },
-  LIABILITY_FIXA:      { label: "Perda maxima aceita por aposta (£)", tipo: "numero" },
-  ODD_01_MINIMA:       { label: "Odd minima LAY 0-1", tipo: "numero" },
-  ODD_01_MAXIMA:       { label: "Odd maxima LAY 0-1", tipo: "numero" },
-  ODD_10_MINIMA:       { label: "Odd minima LAY 1-0", tipo: "numero" },
-  ODD_10_MAXIMA:       { label: "Odd maxima LAY 1-0", tipo: "numero" },
-  RAZAO_ODD_MAXIMA:    { label: "Razao maxima odd 0-1 / 1-0", tipo: "numero" },
-  LIQUIDEZ_MINIMA_CS_DISPONIVEL: { label: "Liquidez minima disponivel (£)", tipo: "numero" },
-  ODD_FAVORITO_MAX:    { label: "Odd maxima do favorito", tipo: "numero" },
-  ODD_OVER15_MINIMA:   { label: "Odd minima Over 1.5", tipo: "numero" },
-  ODD_OVER15_MAXIMA:   { label: "Odd maxima Over 1.5", tipo: "numero" },
-  ODD_BTTS_MINIMA:     { label: "Odd minima BTTS", tipo: "numero" },
-  ODD_BTTS_MAXIMA:     { label: "Odd maxima BTTS", tipo: "numero" },
-};
-
 const SUGESTOES_CHAT = [
   "Como esta o PnL desse bot?",
   "Qual filtro esta barrando mais jogos?",
@@ -757,53 +731,19 @@ export default function App() {
 
       {tab === "filtros" && (
         <div className="filtros-wrap">
-          {filtros.length === 0 && (
-            <p className="empty">Nenhum filtro cadastrado para este bot.</p>
-          )}
-          {(() => {
-            const filtrosNumericos = filtros.filter((f) => f.valor !== null && f.valor_texto === null);
-            const filtrosTexto = filtros.filter((f) => f.valor_texto !== null);
-            return (
-              <>
-                {filtrosNumericos.length > 0 && (
-                  <div className="filtro-grupo">
-                    <h3 className="filtro-grupo-titulo">Parametros numericos</h3>
-                    {filtrosNumericos.map((f) => {
-                      const meta = FILTROS_LABELS[f.chave] || { label: f.chave, tipo: "numero" };
-                      return (
-                        <CampoFiltro key={f.chave} meta={{ chave: f.chave, label: meta.label }}
-                          linha={f} onSalvar={salvarFiltro} salvando={salvandoChave === f.chave} />
-                      );
-                    })}
-                  </div>
-                )}
-                {filtrosTexto.length > 0 && (
-                  <div className="filtro-grupo">
-                    <h3 className="filtro-grupo-titulo">Parametros de configuracao</h3>
-                    {filtrosTexto.map((f) => {
-                      const meta = FILTROS_LABELS[f.chave] || { label: f.chave, tipo: "texto" };
-                      return (
-                        <div key={f.chave} className="filtro-row">
-                          <div className="filtro-label">
-                            <span>{meta.label}</span>
-                          </div>
-                          <div className="filtro-inputs">
-                            <span style={{ fontSize: 13, color: "var(--color-text-secondary)", padding: "0 8px" }}>
-                              {f.valor_texto}
-                            </span>
-                            <span style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>
-                              (altere via aba Estrategias)
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </>
-            );
-          })()}
-          <p className="footer-note">As alteracoes nos parametros numericos valem em ate 5 minutos.</p>
+          {FILTROS_GRUPOS.map((grupo) => (
+            <div className="filtro-grupo" key={grupo.nome}>
+              <h3 className="filtro-grupo-titulo">{grupo.nome}</h3>
+              {grupo.campos.map((meta) => {
+                const linha = filtros.find((f) => f.chave === meta.chave);
+                return (
+                  <CampoFiltro key={meta.chave} meta={meta} linha={linha}
+                    onSalvar={salvarFiltro} salvando={salvandoChave === meta.chave} />
+                );
+              })}
+            </div>
+          ))}
+          <p className="footer-note">As alteracoes valem em ate 5 minutos.</p>
         </div>
       )}
 
