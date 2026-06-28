@@ -113,7 +113,7 @@ MINUTOS_MONITOR_POS_KICK = 15    # quantos minutos apos o kickoff monitorar
 
 # IA - Analise Gemini (gratuito via Google AI Studio)
 IA_ATIVA  = True                          # False para desativar sem remover o codigo
-IA_MODELO = "gemini-2.0-flash"
+IA_MODELO = "gemini-2.0-flash-lite"  # modelo mais leve, cota free tier maior
 
 # ============================================================
 # LIGAS PERMITIDAS
