@@ -473,7 +473,7 @@ stats = Estatisticas()
 
 # Motivos que bloqueiam permanentemente (estruturais)
 CACHE_MOTIVOS_PERMANENTES = [
-    'Sem Correct Score',
+    
     'Sem Match Odds',
     'Liga nao permitida',
 ]
