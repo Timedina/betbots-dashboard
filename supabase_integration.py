@@ -112,15 +112,19 @@ def carregar_filtros() -> dict:
     if not SUPABASE_ATIVO:
         return _filtros_cache
     try:
+        bot_id_atual = os.getenv('SUPABASE_BOT_ID_OVERRIDE', os.getenv('SUPABASE_BOT_ID', SUPABASE_BOT_ID))
         resp = (
             _client.table('filtros')
-            .select('chave,valor,valor_copa')
-            .eq('bot_id', SUPABASE_BOT_ID)
+            .select('chave,valor,valor_copa,valor_texto')
+            .eq('bot_id', bot_id_atual)
             .execute()
         )
         novo = {}
         for row in resp.data:
-            novo[row['chave']] = float(row['valor'])
+            if row.get("valor") is not None:
+                novo[row["chave"]] = float(row["valor"])
+            elif row.get("valor_texto") is not None:
+                novo[row["chave"]] = row["valor_texto"]
             if row.get('valor_copa') is not None:
                 novo[row['chave'] + '_COPA'] = float(row['valor_copa'])
         _filtros_cache = novo

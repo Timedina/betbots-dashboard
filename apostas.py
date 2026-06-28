@@ -22,12 +22,14 @@ STAKE_MINIMO   = 2.0    # £ minimo permitido pela Betfair
 MODO_SIMULACAO = True  # ← mude para False quando quiser apostar de verdade
 
 
-def calcular_stake_por_liability(odd: float, liability: float = LIABILITY_FIXA) -> float:
+def calcular_stake_por_liability(odd: float, liability: float = None) -> float:
     """
     Calcula o stake necessario para que a perda maxima (liability) seja sempre a mesma,
     independente da odd. Stake = liability / (odd - 1).
     Isso evita que apostas em odds altas gerem prejuizo desproporcional.
     """
+    if liability is None:
+        liability = LIABILITY_FIXA
     if odd <= 1:
         return STAKE_MINIMO
     stake = liability / (odd - 1)

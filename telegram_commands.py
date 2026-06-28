@@ -89,9 +89,14 @@ def processar_comandos(agendador, stats, resultado_jogos, carregar_aprovados_do_
         # ── /resultado ────────────────────────────────────────────
         if texto == '/resultado':
             try:
-                resultado_jogos.atualizar_resultados_do_dia(verbose=False)
-                resumo = resultado_jogos.resumo_resultados()
-                responder(chat_id, resumo)
+                from datetime import timedelta as _timedelta
+                hoje_str  = agora_br.strftime('%Y-%m-%d')
+                ontem_str = (agora_br - _timedelta(days=1)).strftime('%Y-%m-%d')
+                resultado_jogos.atualizar_resultados_do_dia(data_str=ontem_str, verbose=False)
+                resultado_jogos.atualizar_resultados_do_dia(data_str=hoje_str, verbose=False)
+                resumo_ontem = resultado_jogos.resumo_resultados(data_str=ontem_str)
+                resumo_hoje  = resultado_jogos.resumo_resultados(data_str=hoje_str)
+                responder(chat_id, resumo_ontem + chr(10) + chr(10) + resumo_hoje)
             except Exception as e:
                 responder(chat_id, f'❌ Erro ao buscar resultado: {e}')
 

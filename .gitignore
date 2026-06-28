@@ -14,3 +14,11 @@ data/
 dados_bot/
 *.bak
 *.save
+logs/
+*.bak*
+dados_bot/
+_patch*.py
+logs/
+*.bak*
+dados_bot/
+_patch*.py
