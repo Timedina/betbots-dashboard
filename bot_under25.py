@@ -42,15 +42,24 @@ def get_filtros():
 
 def buscar_mercados_under25_ao_vivo():
     rpc = json.dumps({"jsonrpc":"2.0","method":"SportsAPING/v1.0/listMarketCatalogue","params":{"filter":{"eventTypeIds":["1"],"marketTypeCodes":["OVER_UNDER_25"],"inPlayOnly":True},"maxResults":"200","marketProjection":["COMPETITION","EVENT","RUNNER_DESCRIPTION"]},"id":1})
-    return bf.chamar_api(rpc) or []
+    mercados = bf.chamar_api(rpc) or []
+    for m in mercados:
+        runners = m.get("runners", [])
+        under_id = None
+        for r in runners:
+            if "under" in r.get("runnerName", "").lower():
+                under_id = r.get("selectionId")
+                break
+        m["_under_selection_id"] = under_id
+    return mercados
 
-def obter_odd_e_liquidez_under(market_id):
+def obter_odd_e_liquidez_under(market_id, selection_id=None):
     rpc = json.dumps({"jsonrpc":"2.0","method":"SportsAPING/v1.0/listMarketBook","params":{"marketIds":[market_id],"priceProjection":{"priceData":["EX_BEST_OFFERS"],"virtualise":"true"}},"id":1})
     livros = bf.chamar_api(rpc) or []
     if not livros:
         return None, 0
     for runner in livros[0].get("runners", []):
-        if runner.get("sortPriority") == 2:
+        if selection_id and runner.get("selectionId") == selection_id:
             backs = runner.get("ex", {}).get("availableToBack", [])
             if backs:
                 odd = backs[0].get("price", 0)
@@ -101,6 +110,7 @@ def verificar_entradas(filtros):
         market_id   = m.get("marketId", "")
         nome_jogo   = m.get("event", {}).get("name", market_id)
         competition = m.get("competition", {}).get("name", "")
+        under_sel_id = m.get("_under_selection_id")
         if market_id in apostas_ativas:
             continue
         minuto = obter_minuto_jogo(market_id)
@@ -108,8 +118,10 @@ def verificar_entradas(filtros):
             log.info(f"  {nome_jogo} — min {minuto} > max {filtros['ENTRADA_MINUTOS_MAX']}, skip")
             sb.registrar_analise_supabase({"event_id": market_id, "nome_jogo": nome_jogo, "competition": competition}, aprovado=False, motivos=[f"Minuto {minuto} > max {filtros['ENTRADA_MINUTOS_MAX']}"])
             continue
-        odd, liq = obter_odd_e_liquidez_under(market_id)
+        odd, liq = obter_odd_e_liquidez_under(market_id, under_sel_id)
         if odd is None:
+            log.info(f"  {nome_jogo} — runner Under 2.5 nao encontrado")
+            sb.registrar_analise_supabase({"event_id": market_id, "nome_jogo": nome_jogo, "competition": competition}, aprovado=False, motivos=["Runner Under 2.5 nao encontrado"])
             continue
         log.info(f"  {nome_jogo} | min={minuto} | odd={odd:.2f} | liq=£{liq:.0f}")
         if not (filtros["ODD_MINIMA"] <= odd <= filtros["ODD_MAXIMA"]):
@@ -122,13 +134,13 @@ def verificar_entradas(filtros):
             continue
         stake = filtros["STAKE_FIXO"]
         log.info(f"    ENTRADA — stake=£{stake} @ {odd:.2f}")
-        apostas_ativas[market_id] = {"nome_jogo": nome_jogo, "competition": competition, "odd_entrada": odd, "stake": stake, "entrada_em": time.time(), "minuto_entrada": minuto}
+        apostas_ativas[market_id] = {"nome_jogo": nome_jogo, "competition": competition, "odd_entrada": odd, "stake": stake, "entrada_em": time.time(), "minuto_entrada": minuto, "under_sel_id": under_sel_id}
         sb.registrar_analise_supabase({"event_id": market_id, "nome_jogo": nome_jogo, "competition": competition}, aprovado=True, motivos=[f"odd={odd:.2f}", f"min={minuto}"])
         enviar_mensagem(formatar_entrada(nome_jogo, competition, odd, stake, minuto, market_id))
 
 def verificar_saidas(filtros):
     for market_id, ap in list(apostas_ativas.items()):
-        odd_atual, _ = obter_odd_e_liquidez_under(market_id)
+        odd_atual, _ = obter_odd_e_liquidez_under(market_id, ap.get("under_sel_id"))
         if not odd_atual:
             odd_atual = ap["odd_entrada"]
         minutos_passados = (time.time() - ap["entrada_em"]) / 60
