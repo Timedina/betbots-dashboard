@@ -106,6 +106,7 @@ def verificar_entradas(filtros):
         minuto = obter_minuto_jogo(market_id)
         if minuto > filtros["ENTRADA_MINUTOS_MAX"]:
             log.info(f"  {nome_jogo} — min {minuto} > max {filtros['ENTRADA_MINUTOS_MAX']}, skip")
+            sb.registrar_analise_supabase({"event_id": market_id, "nome_jogo": nome_jogo, "competition": competition}, aprovado=False, motivos=[f"Minuto {minuto} > max {filtros['ENTRADA_MINUTOS_MAX']}"])
             continue
         odd, liq = obter_odd_e_liquidez_under(market_id)
         if odd is None:
@@ -113,9 +114,11 @@ def verificar_entradas(filtros):
         log.info(f"  {nome_jogo} | min={minuto} | odd={odd:.2f} | liq=£{liq:.0f}")
         if not (filtros["ODD_MINIMA"] <= odd <= filtros["ODD_MAXIMA"]):
             log.info(f"    Odd fora do intervalo [{filtros['ODD_MINIMA']}, {filtros['ODD_MAXIMA']}]")
+            sb.registrar_analise_supabase({"event_id": market_id, "nome_jogo": nome_jogo, "competition": competition}, aprovado=False, motivos=[f"Odd {odd:.2f} fora do intervalo [{filtros['ODD_MINIMA']}, {filtros['ODD_MAXIMA']}]"])
             continue
         if liq < filtros["LIQUIDEZ_MINIMA"]:
             log.info(f"    Liquidez £{liq:.0f} < minimo £{filtros['LIQUIDEZ_MINIMA']:.0f}")
+            sb.registrar_analise_supabase({"event_id": market_id, "nome_jogo": nome_jogo, "competition": competition}, aprovado=False, motivos=[f"Liquidez £{liq:.0f} < minimo £{filtros['LIQUIDEZ_MINIMA']:.0f}"])
             continue
         stake = filtros["STAKE_FIXO"]
         log.info(f"    ENTRADA — stake=£{stake} @ {odd:.2f}")
