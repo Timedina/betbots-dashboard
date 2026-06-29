@@ -164,31 +164,34 @@ def processar_comandos(agendador, stats, resultado_jogos, carregar_aprovados_do_
 
         # ── /filtros ──────────────────────────────────────────────
         elif texto == '/filtros':
-            from bot_prelive import APENAS_LAY_01, APENAS_LAY_10, RAZAO_ODD_MAXIMA, MINUTOS_APOS_INICIO, MINUTOS_ANTES_INICIO
+            from bot_prelive import (APENAS_LAY_01, APENAS_LAY_10, RAZAO_ODD_MAXIMA,
+                MINUTOS_APOS_INICIO, MINUTOS_ANTES_INICIO,
+                ODD_FAVORITO_MAX_COPA, ODD_OVER15_MAXIMA_COPA, ODD_BTTS_MAXIMA_COPA)
+            from apostas import LIABILITY_FIXA
             modo = 'Apenas LAY 0-1' if APENAS_LAY_01 else ('Apenas LAY 1-0' if APENAS_LAY_10 else 'LAY 0-1 e 1-0')
             responder(chat_id,
-                f'⚙️ *Filtros Ativos*\n'
-                f'━━━━━━━━━━━━━━━━━━━━\n'
-                f'🎯 *Modo:* {modo}\n'
-                f'━━━━━━━━━━━━━━━━━━━━\n'
-                f'📊 *Correct Score LAY 0-1*\n'
-                f'  Faixa: {ODD_01_MINIMA} — {ODD_01_MAXIMA}\n'
-                f'  Razão máx: {RAZAO_ODD_MAXIMA}\n'
-                f'━━━━━━━━━━━━━━━━━━━━\n'
-                f'⭐ *Favorito*\n'
-                f'  Máximo: {ODD_FAVORITO_MAX}\n'
-                f'━━━━━━━━━━━━━━━━━━━━\n'
-                f'📈 *Over 1.5*\n'
-                f'  Faixa: {ODD_OVER15_MINIMA} — {ODD_OVER15_MAXIMA}\n'
-                f'━━━━━━━━━━━━━━━━━━━━\n'
-                f'🤝 *BTTS*\n'
-                f'  Faixa: {ODD_BTTS_MINIMA} — {ODD_BTTS_MAXIMA}\n'
-                f'━━━━━━━━━━━━━━━━━━━━\n'
-                f'💧 *Liquidez CS mín:* £{LIQUIDEZ_MINIMA_CS_DISPONIVEL}\n'
-                f'⏱ *Janela:* {MINUTOS_ANTES_INICIO}min antes até {MINUTOS_APOS_INICIO}min após'
+                f'\u2699\ufe0f *Filtros Ativos*\n'
+                f'\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n'
+                f'\U0001f3af *Modo:* {modo}\n'
+                f'\U0001f4b0 *Liability fixa:* \xa3{LIABILITY_FIXA:.0f}\n'
+                f'\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n'
+                f'\U0001f4ca *Correct Score LAY 0-1*\n'
+                f'  Faixa: {ODD_01_MINIMA} - {ODD_01_MAXIMA}\n'
+                f'  Razao max: {RAZAO_ODD_MAXIMA}\n'
+                f'\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n'
+                f'\u2b50 *Favorito*\n'
+                f'  Padrao: {ODD_FAVORITO_MAX} | \U0001f3c6 Copa: {ODD_FAVORITO_MAX_COPA}\n'
+                f'\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n'
+                f'\U0001f4c8 *Over 1.5*\n'
+                f'  Padrao: {ODD_OVER15_MINIMA}-{ODD_OVER15_MAXIMA} | \U0001f3c6 Copa: ate {ODD_OVER15_MAXIMA_COPA}\n'
+                f'\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n'
+                f'\U0001f91d *BTTS*\n'
+                f'  Padrao: {ODD_BTTS_MINIMA}-{ODD_BTTS_MAXIMA} | \U0001f3c6 Copa: ate {ODD_BTTS_MAXIMA_COPA}\n'
+                f'\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n'
+                f'\U0001f4a7 *Liquidez CS min:* \xa3{LIQUIDEZ_MINIMA_CS_DISPONIVEL}\n'
+                f'\u23f1 *Janela:* {MINUTOS_ANTES_INICIO}min antes ate {MINUTOS_APOS_INICIO}min apos'
             )
 
-                # ── /reprovados ───────────────────────────────────────────
         elif texto == '/reprovados':
             reprovados = carregar_reprovados_do_dia()
             if not reprovados:
