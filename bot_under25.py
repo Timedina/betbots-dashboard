@@ -150,9 +150,15 @@ def verificar_entradas(filtros):
             log.info(f"    Odd fora do intervalo [{filtros['ODD_MINIMA']}, {filtros['ODD_MAXIMA']}]")
             sb.registrar_analise_supabase({"event_id": market_id, "nome_jogo": nome_jogo, "competition": competition, "minuto": minuto}, aprovado=False, motivos=[f"Odd {odd:.2f} fora do intervalo [{filtros['ODD_MINIMA']}, {filtros['ODD_MAXIMA']}]"])
             continue
-        if liq < filtros["LIQUIDEZ_MINIMA"]:
-            log.info(f"    Liquidez £{liq:.0f} < minimo £{filtros['LIQUIDEZ_MINIMA']:.0f}")
-            sb.registrar_analise_supabase({"event_id": market_id, "nome_jogo": nome_jogo, "competition": competition, "minuto": minuto}, aprovado=False, motivos=[f"Liquidez £{liq:.0f} < minimo £{filtros['LIQUIDEZ_MINIMA']:.0f}"])
+        liq_minima = filtros["LIQUIDEZ_MINIMA"]
+        if minuto <= 2:
+            liq_minima = min(50.0, liq_minima)
+        elif minuto <= 4:
+            liq_minima = min(100.0, liq_minima)
+        if liq < liq_minima:
+            log.info(f"    Liquidez £{liq:.0f} < minimo £{liq_minima:.0f}")
+            sb.registrar_analise_supabase({"event_id": market_id, "nome_jogo": nome_jogo, "competition": competition, "minuto": minuto}, aprovado=False, motivos=[f"Liquidez £{liq:.0f} < minimo £{liq_minima:.0f}"])
+            enviar_mensagem(f"⚠️ *Under 2.5 — Liquidez insuficiente*\n⚽ {nome_jogo}\n⏱ Min: {minuto}\n💰 Odd: {odd:.2f} (no intervalo)\n💵 Liquidez: £{liq:.0f} < £{liq_minima:.0f}")
             continue
         stake = filtros["STAKE_FIXO"]
         log.info(f"    ENTRADA — stake=£{stake} @ {odd:.2f}")
