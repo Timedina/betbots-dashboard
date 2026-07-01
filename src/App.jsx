@@ -577,6 +577,7 @@ function CampoFiltro({ meta, linha, onSalvar, salvando }) {
 export default function App() {
   const [analises, setAnalises] = useState([]);
   const [apostas, setApostas] = useState([]);
+  const [dataFiltro, setDataFiltro] = useState(new Date().toISOString().slice(0, 10));
   const [filtros, setFiltros] = useState([]);
   const [todosBots, setTodosBots] = useState([]);
   const [botId, setBotId] = useState(() => localStorage.getItem("betbots_bot_id") || BOT_ID);
@@ -609,8 +610,8 @@ export default function App() {
       }
 
       const [an, ap, fl] = await Promise.all([
-        sb(`analises?select=*&bot_id=eq.${idAtivo}&order=analisado_em.desc&limit=50`),
-        sb(`apostas?select=*&bot_id=eq.${idAtivo}&order=apostado_em.desc&limit=50`),
+        sb(`analises?select=*&bot_id=eq.${idAtivo}&order=analisado_em.desc&limit=200`),
+        sb(`apostas?select=*&bot_id=eq.${idAtivo}&order=apostado_em.desc&limit=500`),
         sb(`filtros?select=*&bot_id=eq.${idAtivo}`),
       ]);
       setAnalises(an);
@@ -662,7 +663,24 @@ export default function App() {
     { id: "filtros", label: "Filtros" },
     { id: "chat", label: "Chat IA" },
     { id: "estrategias", label: "Estrategias" },
+    { id: "grafico", label: "Grafico PnL" },
   ];
+
+  const analisadosFiltro = analises.filter((a) => (a.analisado_em || "").startsWith(dataFiltro));
+
+  // PnL acumulado por dia
+  const pnlPorDia = {};
+  apostas.filter((a) => a.status !== "PENDENTE").forEach((a) => {
+    const dia = (a.apostado_em || "").slice(0, 10);
+    if (!dia) return;
+    pnlPorDia[dia] = (pnlPorDia[dia] || 0) + (Number(a.pnl) || 0);
+  });
+  const diasOrdenados = Object.keys(pnlPorDia).sort();
+  let acumulado = 0;
+  const pnlAcumulado = diasOrdenados.map((dia) => {
+    acumulado += pnlPorDia[dia];
+    return { dia, pnl: Number(pnlPorDia[dia].toFixed(2)), acumulado: Number(acumulado.toFixed(2)) };
+  });
 
   return (
     <div className="app">
@@ -713,6 +731,12 @@ export default function App() {
 
       {tab === "analises" && (
         <div className="table-card">
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderBottom: "1px solid #2a2a2a" }}>
+            <span style={{ color: "#aaa", fontSize: 13 }}>Data:</span>
+            <input type="date" value={dataFiltro} onChange={(e) => setDataFiltro(e.target.value)}
+              style={{ background: "#1a1a1a", border: "1px solid #333", color: "#fff", borderRadius: 6, padding: "4px 8px", fontSize: 13 }} />
+            <span style={{ color: "#aaa", fontSize: 12 }}>{analisadosFiltro.length} registros</span>
+          </div>
           <table>
             <thead>
               <tr>
@@ -723,10 +747,10 @@ export default function App() {
               </tr>
             </thead>
             <tbody>
-              {analises.length === 0 && !loading && (
+              {analisadosFiltro.length === 0 && !loading && (
                 <tr><td colSpan={4} className="empty">Nenhuma analise registrada ainda.</td></tr>
               )}
-              {analises.map((a) => (
+              {analisadosFiltro.map((a) => (
                 <tr key={a.id}>
                   <td>{a.nome_jogo}<div className="sub">{a.competition}</div></td>
                   <td><StatusBadge aprovado={a.aprovado} /></td>
@@ -739,6 +763,43 @@ export default function App() {
         </div>
       )}
 
+      {tab === "grafico" && (
+        <div className="table-card" style={{ padding: 16 }}>
+          {pnlAcumulado.length === 0 ? (
+            <p style={{ color: "#aaa", textAlign: "center" }}>Nenhuma aposta com resultado ainda.</p>
+          ) : (
+            <div>
+              <h3 style={{ color: "#fff", marginBottom: 16, fontSize: 15 }}>PnL Acumulado por Dia</h3>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr>
+                      <th style={{ textAlign: "left", padding: "8px 12px", color: "#aaa", fontSize: 13, borderBottom: "1px solid #2a2a2a" }}>Data</th>
+                      <th style={{ textAlign: "right", padding: "8px 12px", color: "#aaa", fontSize: 13, borderBottom: "1px solid #2a2a2a" }}>PnL do Dia</th>
+                      <th style={{ textAlign: "right", padding: "8px 12px", color: "#aaa", fontSize: 13, borderBottom: "1px solid #2a2a2a" }}>PnL Acumulado</th>
+                      <th style={{ textAlign: "left", padding: "8px 12px", color: "#aaa", fontSize: 13, borderBottom: "1px solid #2a2a2a" }}>Barra</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pnlAcumulado.map(({ dia, pnl, acumulado }) => (
+                      <tr key={dia}>
+                        <td style={{ padding: "8px 12px", color: "#fff", fontSize: 13 }}>{dia}</td>
+                        <td style={{ padding: "8px 12px", textAlign: "right", color: pnl >= 0 ? "#4ade80" : "#f09595", fontSize: 13, fontWeight: 600 }}>{pnl >= 0 ? "+" : ""}{pnl.toFixed(2)}u</td>
+                        <td style={{ padding: "8px 12px", textAlign: "right", color: acumulado >= 0 ? "#4ade80" : "#f09595", fontSize: 13, fontWeight: 700 }}>{acumulado >= 0 ? "+" : ""}{acumulado.toFixed(2)}u</td>
+                        <td style={{ padding: "8px 12px" }}>
+                          <div style={{ background: "#2a2a2a", borderRadius: 4, height: 8, width: 150 }}>
+                            <div style={{ background: pnl >= 0 ? "#4ade80" : "#f09595", borderRadius: 4, height: 8, width: `${Math.min(100, Math.abs(pnl) / Math.max(...pnlAcumulado.map(d => Math.abs(d.pnl))) * 100)}%` }} />
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
       {tab === "apostas" && (
         <div className="table-card">
           <table>
