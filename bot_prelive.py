@@ -1632,7 +1632,7 @@ def rodar_bot():
                             motivos=motivos,
                         )
                         salvar_historico_completo(info, aprovado=False, motivos=motivos)
-                        agendador.avancar_verificacao(event_id)
+                    agendador.avancar_verificacao(event_id)
 
                     stats.registrar_reprovacao(motivos)
 
