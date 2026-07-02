@@ -1058,6 +1058,7 @@ def analisar_jogo(event_id: str, nome_jogo: str, minutos: float, market_id_cs_hi
         # para nao retentar a cada 5 minutos e sobrecarregar a API da Betfair
         motivo_temp = 'Sem mercados (falha temporaria API)'
         resultado['motivo_reprovacao'].append(motivo_temp)
+        log.warning(f"  Sem mercados para event_id={event_id} ({nome_jogo}) - possivel ID desatualizado na Betfair")
         cache_eventos.registrar(event_id, motivo_temp)  # expira em CACHE_TTL_MINUTOS
         return resultado
 
@@ -1112,14 +1113,21 @@ def analisar_jogo(event_id: str, nome_jogo: str, minutos: float, market_id_cs_hi
     liquidez_total = book_cs.get('totalMatched', 0)
 
     if liquidez_disponivel < LIQUIDEZ_MINIMA_CS_DISPONIVEL:
+        status_mercado = book_cs.get('status', '?')
         resultado['motivo_reprovacao'].append(
             f'Liquidez CS insuficiente: £{liquidez_disponivel:.0f} disp. '
-            f'(historico £{liquidez_total:.0f}, min £{LIQUIDEZ_MINIMA_CS_DISPONIVEL})'
+            f'(historico £{liquidez_total:.0f}, min £{LIQUIDEZ_MINIMA_CS_DISPONIVEL}, status={status_mercado})'
         )
+        if status_mercado != 'OPEN':
+            log.info(f'    Mercado CS status={status_mercado} (provavelmente suspenso temporariamente)')
         return resultado
 
     odd_10 = get_odd_runner(runners_cs_book, runners_cs_map, '1 - 0')
     odd_01 = get_odd_runner(runners_cs_book, runners_cs_map, '0 - 1')
+    resultado['odd_10'] = odd_10
+    resultado['odd_01'] = odd_01
+    resultado['liquidez_disponivel'] = liquidez_disponivel
+    resultado['liquidez_total'] = liquidez_total
 
     if not odd_01:
         resultado['motivo_reprovacao'].append('Sem odd 0-1')
@@ -1139,10 +1147,6 @@ def analisar_jogo(event_id: str, nome_jogo: str, minutos: float, market_id_cs_hi
             resultado['motivo_reprovacao'].append(f'Razao odd_01/odd_10 alta: {razao} (max {RAZAO_ODD_MAXIMA})')
             return resultado
 
-    resultado['odd_10']              = odd_10
-    resultado['odd_01']              = odd_01
-    resultado['liquidez_disponivel'] = liquidez_disponivel
-    resultado['liquidez_total']      = liquidez_total
     resultado['market_id_cs']        = cs_mercado['marketId']
     resultado['runners_cs_map']      = {str(sid): nome for sid, nome in runners_cs_map.items()}
 
