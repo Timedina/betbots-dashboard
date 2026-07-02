@@ -1,7 +1,7 @@
 # Ambientes Virtuais
 venv/
+.venv/
 .env
-__pycache__/
 
 # IDEs
 .vscode/
@@ -9,16 +9,29 @@ __pycache__/
 
 # Logs e Dados
 *.log
+logs/
 data/
-.venv/
 dados_bot/
+
+# Backups e patches
 *.bak
+*.bak*
 *.save
-logs/
-*.bak*
-dados_bot/
 _patch*.py
-logs/
-*.bak*
-dados_bot/
-_patch*.py
+
+# Credenciais e certificados (Betfair)
+*.crt
+*.pem
+*.key
+*.KEY
+*.p12
+*.pfx
+credentials.json
+secrets.*
+
+# Python
+__pycache__/
+*.pyc
+
+# Sistema
+.DS_Store
