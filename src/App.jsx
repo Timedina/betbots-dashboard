@@ -754,7 +754,17 @@ export default function App() {
                 <tr key={a.id}>
                   <td>{a.nome_jogo}<div className="sub">{a.competition}</div></td>
                   <td><StatusBadge aprovado={a.aprovado} /></td>
-                  <td className="muted">{a.aprovado ? a.ia_motivo || "—" : (a.motivos || []).join(", ") || "—"}</td>
+                  <td className="muted">
+                    {a.aprovado ? a.ia_motivo || "—" : (a.motivos || []).join(", ") || "—"}
+                    {(a.odd_01 != null || a.odd_10 != null || a.liquidez_disponivel != null) && (
+                      <div style={{ fontSize: 11, color: "#777", marginTop: 2 }}>
+                        {a.odd_01 != null && <span>0-1: {Number(a.odd_01).toFixed(2)}  </span>}
+                        {a.odd_10 != null && <span>1-0: {Number(a.odd_10).toFixed(2)}  </span>}
+                        {a.liquidez_disponivel != null && <span>Liq: £{Number(a.liquidez_disponivel).toFixed(0)}</span>}
+                        {a.minuto != null && <span>  Min: {a.minuto}</span>}
+                      </div>
+                    )}
+                  </td>
                   <td className="muted" style={{ textAlign: "right" }}>{fmtHora(a.analisado_em)}</td>
                 </tr>
               ))}
