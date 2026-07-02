@@ -71,7 +71,10 @@ def renovar_token_se_necessario() -> bool:
         return login()
     return True
 
-def chamar_api(rpc: str) -> list:
+def chamar_api(rpc: str) -> list | None:
+    """Retorna a lista de resultados em caso de sucesso (pode ser vazia
+    se a API respondeu normalmente sem resultados), ou None se houve
+    uma falha real (erro de rede, HTTP, timeout, etc.)."""
     renovar_token_se_necessario()
     url = "https://api.betfair.bet.br/exchange/betting/json-rpc/v1"
     headers = {"X-Application": APP_KEY, "X-Authentication": SESSION_TOKEN, "content-type": "application/json"}
@@ -83,7 +86,7 @@ def chamar_api(rpc: str) -> list:
         print(f"[Betfair] HTTPError: {e.code} {e.read().decode()}")
     except Exception as e:
         print(f"[Betfair] Erro: {e}")
-    return []
+    return None
 
 def listar_mercados(event_id: str, tipos: list = None) -> list:
     filtro = {"eventIds": [event_id]}

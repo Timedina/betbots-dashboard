@@ -535,15 +535,16 @@ class CacheEventos:
         log.debug(f'  Cache expirado: {event_id}')
         return False
 
-    def registrar(self, event_id: str, motivo: str):
+    def registrar(self, event_id: str, motivo: str, ttl_minutos: int = None):
         from datetime import datetime, timezone, timedelta
         if self._permanente(motivo):
             self._pulados[event_id] = {'motivo': motivo, 'expira_em': None}
             log.debug(f'  Cache permanente: {event_id} — {motivo}')
         else:
-            expira = (datetime.now(timezone.utc) + timedelta(minutes=CACHE_TTL_MINUTOS)).isoformat()
+            ttl = ttl_minutos if ttl_minutos is not None else CACHE_TTL_MINUTOS
+            expira = (datetime.now(timezone.utc) + timedelta(minutes=ttl)).isoformat()
             self._pulados[event_id] = {'motivo': motivo, 'expira_em': expira}
-            log.debug(f'  Cache TTL {CACHE_TTL_MINUTOS}min: {event_id} — {motivo}')
+            log.debug(f'  Cache TTL {ttl}min: {event_id} — {motivo}')
         self._salvar()
 
     def total(self) -> int:
@@ -1053,13 +1054,22 @@ def analisar_jogo(event_id: str, nome_jogo: str, minutos: float, market_id_cs_hi
         return resultado
 
     mercados = listar_mercados_filtrado(event_id)
-    if not mercados:
-        # Falha temporaria na API (rate limit/timeout) — cacheia com TTL curto
-        # para nao retentar a cada 5 minutos e sobrecarregar a API da Betfair
+    if mercados is None:
+        # Falha real na API (erro de rede/HTTP/rate limit) — cacheia com TTL curto
+        # para nao retentar a cada poucos minutos e sobrecarregar a API da Betfair
         motivo_temp = 'Sem mercados (falha temporaria API)'
         resultado['motivo_reprovacao'].append(motivo_temp)
-        log.warning(f"  Sem mercados para event_id={event_id} ({nome_jogo}) - possivel ID desatualizado na Betfair")
+        log.warning(f"  Falha real na API Betfair para event_id={event_id} ({nome_jogo})")
         cache_eventos.registrar(event_id, motivo_temp)  # expira em CACHE_TTL_MINUTOS
+        return resultado
+    if not mercados:
+        # Resposta valida da API, mas sem nenhum mercado para o evento
+        # (evento sem cobertura da Betfair) — TTL bem mais longo, pois
+        # nao ha motivo pra tentar de novo a cada poucos minutos
+        motivo_vazio = 'Sem mercados disponiveis na Betfair'
+        resultado['motivo_reprovacao'].append(motivo_vazio)
+        log.warning(f"  Sem mercados disponiveis (resposta valida vazia) para event_id={event_id} ({nome_jogo}) - evento provavelmente sem cobertura")
+        cache_eventos.registrar(event_id, motivo_vazio, ttl_minutos=240)
         return resultado
 
     cs_mercado     = next((m for m in mercados if m['marketName'] == 'Correct Score'), None)
