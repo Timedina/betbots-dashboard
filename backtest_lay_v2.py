@@ -43,15 +43,12 @@ CENARIOS = {
 CACHE_PLACAR = {}
 
 
-def buscar_placar_final(event_id: str):
-    if event_id in CACHE_PLACAR:
-        return CACHE_PLACAR[event_id]
-    mercados = bf.listar_mercados(event_id, tipos=["CORRECT_SCORE"])
-    if not mercados:
-        CACHE_PLACAR[event_id] = (None, "sem_mercado_cs")
-        return CACHE_PLACAR[event_id]
-    market_id = mercados[0]["marketId"]
-    runners_map = {r["selectionId"]: r["runnerName"] for r in mercados[0].get("runners", [])}
+def buscar_placar_final(market_id: str, runners_cs_map: dict = None):
+    if not market_id:
+        return None, "sem_market_id_salvo"
+    if market_id in CACHE_PLACAR:
+        return CACHE_PLACAR[market_id]
+    runners_cs_map = runners_cs_map or {}
     rpc = json.dumps({
         "jsonrpc": "2.0",
         "method": "SportsAPING/v1.0/listMarketBook",
@@ -60,19 +57,20 @@ def buscar_placar_final(event_id: str):
     })
     livros = bf.chamar_api(rpc) or []
     if not livros:
-        CACHE_PLACAR[event_id] = (None, "sem_book")
-        return CACHE_PLACAR[event_id]
+        CACHE_PLACAR[market_id] = (None, "sem_book")
+        return CACHE_PLACAR[market_id]
     book = livros[0]
     if book.get("status") != "CLOSED":
-        CACHE_PLACAR[event_id] = (None, f"status={book.get('status')}")
-        return CACHE_PLACAR[event_id]
+        CACHE_PLACAR[market_id] = (None, f"status={book.get('status')}")
+        return CACHE_PLACAR[market_id]
     for r in book.get("runners", []):
         if r.get("status") == "WINNER":
-            placar = runners_map.get(r.get("selectionId"), f"ID:{r.get('selectionId')}")
-            CACHE_PLACAR[event_id] = (placar, "ok")
-            return CACHE_PLACAR[event_id]
-    CACHE_PLACAR[event_id] = (None, "sem_vencedor")
-    return CACHE_PLACAR[event_id]
+            sel_id = r.get("selectionId")
+            placar = runners_cs_map.get(str(sel_id)) or runners_cs_map.get(sel_id) or f"ID:{sel_id}"
+            CACHE_PLACAR[market_id] = (placar, "ok")
+            return CACHE_PLACAR[market_id]
+    CACHE_PLACAR[market_id] = (None, "sem_vencedor")
+    return CACHE_PLACAR[market_id]
 
 
 def calcular_pnl_lay(placar_final, odd_01, odd_10, liability=100.0, comissao=0.0636):
@@ -163,7 +161,9 @@ def main():
             odd_01 = float(a["odd_01"])
             odd_10 = float(a["odd_10"]) if a.get("odd_10") else 0
             liq = a.get("liquidez_disponivel")
-            placar, status = buscar_placar_final(event_id)
+            market_id_cs = a.get("market_id_cs")
+            runners_cs_map = a.get("runners_cs_map") or {}
+            placar, status = buscar_placar_final(market_id_cs, runners_cs_map)
             if not placar:
                 print(f"    [SKIP] {nome} - {status}")
                 continue

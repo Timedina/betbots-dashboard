@@ -47,6 +47,8 @@ def registrar_analise_supabase(info: dict, aprovado: bool, motivos: list = None)
             'liquidez_total':      info.get('liquidez_total', 0),
             'minuto':              info.get('minuto') or info.get('minutos'),
             'ia_motivo':           info.get('ia_motivo', ''),
+            'market_id_cs':        info.get('market_id_cs', ''),
+            'runners_cs_map':      info.get('runners_cs_map', {}),
         }).execute()
     except Exception as e:
         log.warning(f'  Erro ao gravar analise no Supabase: {e}')
