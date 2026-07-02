@@ -1067,6 +1067,9 @@ def analisar_jogo(event_id: str, nome_jogo: str, minutos: float, market_id_cs_hi
     over15_mercado = next((m for m in mercados if m['marketName'] == 'Over/Under 1.5 Goals'), None)
     btts_mercado   = next((m for m in mercados if m['marketName'] == 'Both teams to Score?'), None)
 
+    if cs_mercado:
+        resultado['market_id_cs'] = cs_mercado['marketId']
+        resultado['runners_cs_map'] = {str(r['selectionId']): r['runnerName'] for r in cs_mercado.get('runners', [])}
     if not cs_mercado:
         resultado['motivo_reprovacao'].append('Sem Correct Score')
         cache_eventos.registrar(event_id, 'Sem Correct Score')
