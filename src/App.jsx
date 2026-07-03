@@ -66,6 +66,20 @@ function fmtHora(ts) {
     timeZone: "America/Sao_Paulo",
   });
 }
+function dataBrasilia(ts) {
+  // Retorna a data (YYYY-MM-DD) correspondente ao timestamp `ts`,
+  // considerando o fuso de Brasilia (America/Sao_Paulo) em vez de UTC.
+  // Sem `ts`, usa o instante atual (equivalente a "hoje" em Brasilia).
+  const d = ts ? new Date(ts) : new Date();
+  const partes = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(d);
+  const map = Object.fromEntries(partes.map((p) => [p.type, p.value]));
+  return `${map.year}-${map.month}-${map.day}`;
+}
 
 function MetricCard({ label, value, color }) {
   return (
@@ -577,7 +591,7 @@ function CampoFiltro({ meta, linha, onSalvar, salvando }) {
 export default function App() {
   const [analises, setAnalises] = useState([]);
   const [apostas, setApostas] = useState([]);
-  const [dataFiltro, setDataFiltro] = useState(new Date().toISOString().slice(0, 10));
+  const [dataFiltro, setDataFiltro] = useState(dataBrasilia());
   const [filtros, setFiltros] = useState([]);
   const [todosBots, setTodosBots] = useState([]);
   const [botId, setBotId] = useState(() => localStorage.getItem("betbots_bot_id") || BOT_ID);
@@ -666,7 +680,7 @@ export default function App() {
     { id: "grafico", label: "Grafico PnL" },
   ];
 
-  const analisadosFiltro = analises.filter((a) => (a.analisado_em || "").startsWith(dataFiltro));
+  const analisadosFiltro = analises.filter((a) => a.analisado_em && dataBrasilia(a.analisado_em) === dataFiltro);
 
   // PnL acumulado por dia
   const pnlPorDia = {};
