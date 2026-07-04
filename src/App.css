@@ -95,6 +95,15 @@ body {
   margin-bottom: 1rem;
 }
 
+.aviso-amostra {
+  background: #2a2414;
+  color: #e0b34d;
+  padding: 0.6rem 1rem;
+  border-radius: 8px;
+  font-size: 13px;
+  margin-bottom: 1rem;
+}
+
 .metrics {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

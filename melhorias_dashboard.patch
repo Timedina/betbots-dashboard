@@ -1,0 +1,206 @@
+diff --git a/src/App.css b/src/App.css
+index 192e80b..fa97e22 100644
+--- a/src/App.css
++++ b/src/App.css
+@@ -95,6 +95,15 @@ body {
+   margin-bottom: 1rem;
+ }
+ 
++.aviso-amostra {
++  background: #2a2414;
++  color: #e0b34d;
++  padding: 0.6rem 1rem;
++  border-radius: 8px;
++  font-size: 13px;
++  margin-bottom: 1rem;
++}
++
+ .metrics {
+   display: grid;
+   grid-template-columns: repeat(3, 1fr);
+diff --git a/src/App.jsx b/src/App.jsx
+index ff894d4..f2add21 100644
+--- a/src/App.jsx
++++ b/src/App.jsx
+@@ -591,6 +591,10 @@ function CampoFiltro({ meta, linha, onSalvar, salvando }) {
+ export default function App() {
+   const [analises, setAnalises] = useState([]);
+   const [apostas, setApostas] = useState([]);
++  const [statsResumo, setStatsResumo] = useState(null);
++  const [segmentos, setSegmentos] = useState([]);
++  const [drawdownInfo, setDrawdownInfo] = useState(null);
++  const [slippageInfo, setSlippageInfo] = useState(null);
+   const [dataFiltro, setDataFiltro] = useState(dataBrasilia());
+   const [filtros, setFiltros] = useState([]);
+   const [todosBots, setTodosBots] = useState([]);
+@@ -620,17 +624,26 @@ export default function App() {
+ 
+       if (!idAtivo) {
+         setAnalises([]); setApostas([]); setFiltros([]);
++        setStatsResumo(null); setSegmentos([]); setDrawdownInfo(null); setSlippageInfo(null);
+         setLastUpdate(new Date()); return;
+       }
+ 
+-      const [an, ap, fl] = await Promise.all([
++      const [an, ap, fl, resumo, seg, dd, slip] = await Promise.all([
+         sb(`analises?select=*&bot_id=eq.${idAtivo}&order=analisado_em.desc&limit=200`),
+         sb(`apostas?select=*&bot_id=eq.${idAtivo}&order=apostado_em.desc&limit=500`),
+         sb(`filtros?select=*&bot_id=eq.${idAtivo}`),
++        sb(`v_apostas_resumo?bot_id=eq.${idAtivo}`),
++        sb(`v_apostas_por_segmento?bot_id=eq.${idAtivo}&order=pnl_total.desc`),
++        sb(`v_apostas_drawdown_maximo?bot_id=eq.${idAtivo}`),
++        sb(`v_apostas_slippage?bot_id=eq.${idAtivo}`),
+       ]);
+       setAnalises(an);
+       setApostas(ap);
+       setFiltros(fl);
++      setStatsResumo(resumo[0] || null);
++      setSegmentos(seg);
++      setDrawdownInfo(dd[0] || null);
++      setSlippageInfo(slip[0] || null);
+       setLastUpdate(new Date());
+     } catch (e) {
+       setError(e.message);
+@@ -732,6 +745,35 @@ export default function App() {
+             <MetricCard label="PnL total" value={`${pnlTotal >= 0 ? "+" : ""}${pnlTotal.toFixed(2)}u`} color={pnlTotal >= 0 ? "#4ade80" : "#f09595"} />
+             <MetricCard label="Acerto apostas" value={`${vitorias}V / ${derrotas}D (${taxaAcerto}%)`} color={taxaAcerto >= 90 ? "#4ade80" : taxaAcerto >= 75 ? "#378ade" : "#f09595"} />
+           </div>
++          {statsResumo && (
++            <div className="metrics" style={{"marginTop": "8px"}}>
++              <MetricCard
++                label="ROI real"
++                value={statsResumo.roi_pct != null ? `${statsResumo.roi_pct >= 0 ? "+" : ""}${statsResumo.roi_pct}%` : "—"}
++                color={statsResumo.roi_pct >= 0 ? "#4ade80" : "#f09595"}
++              />
++              <MetricCard
++                label="Drawdown maximo"
++                value={drawdownInfo?.drawdown_maximo != null ? `-${drawdownInfo.drawdown_maximo}u` : "—"}
++                color={drawdownInfo?.drawdown_maximo > 0 ? "#f09595" : "#888"}
++              />
++              <MetricCard
++                label="Confiabilidade da amostra"
++                value={`${statsResumo.total_resolvidas} apostas`}
++                color={
++                  statsResumo.confiabilidade === "AMOSTRA_ROBUSTA" ? "#4ade80"
++                  : statsResumo.confiabilidade === "COMECANDO_A_SER_UTIL" ? "#378ade"
++                  : statsResumo.confiabilidade === "DIRECIONAL_MAS_VOLATIL" ? "#e0b34d"
++                  : "#f09595"
++                }
++              />
++            </div>
++          )}
++          {statsResumo && statsResumo.confiabilidade !== "AMOSTRA_ROBUSTA" && (
++            <div className="aviso-amostra">
++              ⚠️ {statsResumo.confiabilidade_mensagem}
++            </div>
++          )}
+         </>
+       )}
+ 
+@@ -825,33 +867,80 @@ export default function App() {
+         </div>
+       )}
+       {tab === "apostas" && (
+-        <div className="table-card">
+-          <table>
+-            <thead>
+-              <tr>
+-                <th style={{ width: "26%" }}>Jogo</th>
+-                <th style={{ width: "14%" }}>Odd lay</th>
+-                <th style={{ width: "14%" }}>Status</th>
+-                <th style={{ width: "14%" }}>PnL</th>
+-                <th style={{ width: "32%", textAlign: "right" }}>Apostado em</th>
+-              </tr>
+-            </thead>
+-            <tbody>
+-              {apostas.length === 0 && !loading && (
+-                <tr><td colSpan={5} className="empty">Nenhuma aposta registrada ainda.</td></tr>
+-              )}
+-              {apostas.map((a) => (
+-                <tr key={a.id}>
+-                  <td>{a.nome_jogo}</td>
+-                  <td>{a.odd_lay ?? "—"}</td>
+-                  <td>{a.status}</td>
+-                  <td>{a.pnl != null ? a.pnl : "—"}</td>
+-                  <td className="muted" style={{ textAlign: "right" }}>{fmtHora(a.apostado_em)}</td>
++        <>
++          <div className="table-card">
++            <table>
++              <thead>
++                <tr>
++                  <th style={{ width: "26%" }}>Jogo</th>
++                  <th style={{ width: "14%" }}>Odd lay</th>
++                  <th style={{ width: "14%" }}>Status</th>
++                  <th style={{ width: "14%" }}>PnL</th>
++                  <th style={{ width: "32%", textAlign: "right" }}>Apostado em</th>
+                 </tr>
+-              ))}
+-            </tbody>
+-          </table>
+-        </div>
++              </thead>
++              <tbody>
++                {apostas.length === 0 && !loading && (
++                  <tr><td colSpan={5} className="empty">Nenhuma aposta registrada ainda.</td></tr>
++                )}
++                {apostas.map((a) => (
++                  <tr key={a.id}>
++                    <td>{a.nome_jogo}</td>
++                    <td>{a.odd_lay ?? "—"}</td>
++                    <td>{a.status}</td>
++                    <td>{a.pnl != null ? a.pnl : "—"}</td>
++                    <td className="muted" style={{ textAlign: "right" }}>{fmtHora(a.apostado_em)}</td>
++                  </tr>
++                ))}
++              </tbody>
++            </table>
++          </div>
++
++          {slippageInfo && slippageInfo.total_com_execucao_real > 0 && (
++            <div className="table-card" style={{ padding: "10px 16px", marginTop: 12, fontSize: 13, color: "#aaa" }}>
++              Slippage medio (odd pedida vs. odd executada) em {slippageInfo.total_com_execucao_real} apostas reais:{" "}
++              <strong style={{ color: slippageInfo.slippage_medio_absoluto > 0 ? "#f09595" : "#4ade80" }}>
++                {slippageInfo.slippage_medio_absoluto >= 0 ? "+" : ""}{slippageInfo.slippage_medio_absoluto} ({slippageInfo.slippage_medio_pct}%)
++              </strong>
++            </div>
++          )}
++
++          {segmentos.length > 0 && (
++            <div className="table-card" style={{ marginTop: 12 }}>
++              <div style={{ padding: "10px 12px", borderBottom: "1px solid #2a2a2a", color: "#fff", fontSize: 14, fontWeight: 600 }}>
++                Desempenho por segmento
++              </div>
++              <table>
++                <thead>
++                  <tr>
++                    <th>Campeonato</th>
++                    <th>Placar lay</th>
++                    <th>Faixa odd</th>
++                    <th style={{ textAlign: "right" }}>Apostas</th>
++                    <th style={{ textAlign: "right" }}>Win rate</th>
++                    <th style={{ textAlign: "right" }}>PnL</th>
++                    <th style={{ textAlign: "right" }}>ROI</th>
++                  </tr>
++                </thead>
++                <tbody>
++                  {segmentos.map((s, i) => (
++                    <tr key={i}>
++                      <td>{s.competition || "—"}</td>
++                      <td>{s.placar_lay || "—"}</td>
++                      <td>{s.faixa_odd}</td>
++                      <td style={{ textAlign: "right" }}>{s.total_apostas}</td>
++                      <td style={{ textAlign: "right" }}>{s.win_rate_pct}%</td>
++                      <td style={{ textAlign: "right", color: s.pnl_total >= 0 ? "#4ade80" : "#f09595", fontWeight: 600 }}>
++                        {s.pnl_total >= 0 ? "+" : ""}{s.pnl_total}u
++                      </td>
++                      <td style={{ textAlign: "right" }}>{s.roi_pct != null ? `${s.roi_pct}%` : "—"}</td>
++                    </tr>
++                  ))}
++                </tbody>
++              </table>
++            </div>
++          )}
++        </>
+       )}
+ 
+       {tab === "filtros" && (
