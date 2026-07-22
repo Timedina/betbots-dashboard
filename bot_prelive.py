@@ -233,6 +233,19 @@ def salvar_aprovado(info: dict):
         json.dump(aprovados, f, ensure_ascii=False, indent=2)
 
 
+def atualizar_aprovado_com_aposta(event_id: str, res_aposta: dict):
+    """Grava no JSON do dia os dados reais da aposta (stake, odd_lay, placar_lay),
+    para que resultado_jogos.py calcule o P&L corretamente depois."""
+    aprovados = carregar_aprovados_do_dia()
+    if event_id in aprovados:
+        aprovados[event_id]['stake']      = res_aposta.get('stake')
+        aprovados[event_id]['odd_lay']    = res_aposta.get('odd_lay')
+        aprovados[event_id]['placar_lay'] = res_aposta.get('placar_lay')
+        aprovados[event_id]['betId']      = res_aposta.get('betId')
+        with open(arquivo_do_dia(), 'w', encoding='utf-8') as f:
+            json.dump(aprovados, f, ensure_ascii=False, indent=2)
+
+
 # ============================================================
 # MELHORIA C: LOG PERSISTENTE DE REPROVACOES
 # ============================================================
@@ -1006,30 +1019,62 @@ CRITÉRIOS DE APROVAÇÃO:
 Responda APENAS em JSON, sem texto extra:
 {{"aprovado": true/false, "motivo": "explicação em uma linha"}}"""
 
+    import time
+
+    api_key = os.environ.get("GEMINI_API_KEY", "")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{IA_MODELO}:generateContent?key={api_key}"
+    payload = json.dumps({
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"maxOutputTokens": 200, "temperature": 0.1}
+    }).encode("utf-8")
+
+    # Espacamento minimo entre chamadas para nao estourar o limite de RPM do free tier.
+    global _ia_ultima_chamada
     try:
-        api_key = os.environ.get("GEMINI_API_KEY", "")
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{IA_MODELO}:generateContent?key={api_key}"
+        agora = time.monotonic()
+        espera = 4.0 - (agora - _ia_ultima_chamada)
+        if espera > 0:
+            time.sleep(espera)
+    except NameError:
+        pass
+    _ia_ultima_chamada = time.monotonic()
 
-        payload = json.dumps({
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"maxOutputTokens": 100, "temperature": 0.1}
-        }).encode("utf-8")
+    tentativas = 3
+    for tentativa in range(1, tentativas + 1):
+        try:
+            req = urllib.request.Request(
+                url,
+                data=payload,
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                data = json.loads(resp.read())
+                texto = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+                texto = texto.replace("```json", "").replace("```", "").strip()
+                resultado = json.loads(texto)
+                return resultado.get("aprovado", True), resultado.get("motivo", "")
 
-        req = urllib.request.Request(
-            url,
-            data=payload,
-            headers={"Content-Type": "application/json"}
-        )
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read())
-            texto = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-            texto = texto.replace("```json", "").replace("```", "").strip()
-            resultado = json.loads(texto)
-            return resultado.get("aprovado", True), resultado.get("motivo", "")
+        except urllib.error.HTTPError as e:
+            if e.code == 429 and tentativa < tentativas:
+                espera_backoff = 5 * tentativa
+                log.warning(f"  \U0001f916 IA rate-limited (429), tentativa {tentativa}/{tentativas} - aguardando {espera_backoff}s...")
+                time.sleep(espera_backoff)
+                continue
+            motivo = f"IA indisponivel (HTTP {e.code})"
+            log.warning(f"  \U0001f916 {motivo}, aprovando sem filtro IA: {e}")
+            return True, motivo
 
-    except Exception as e:
-        log.warning(f"  🤖 IA indisponível, aprovando sem filtro IA: {e}")
-        return True, "IA indisponível"
+        except json.JSONDecodeError as e:
+            motivo = "IA indisponivel (resposta invalida/truncada)"
+            log.warning(f"  \U0001f916 {motivo}: {e}")
+            return True, motivo
+
+        except Exception as e:
+            motivo = f"IA indisponivel ({type(e).__name__})"
+            log.warning(f"  \U0001f916 {motivo}, aprovando sem filtro IA: {e}")
+            return True, motivo
+
+    return True, "IA indisponivel (limite de tentativas)"
 
 
 # ============================================================
@@ -1375,6 +1420,42 @@ class AgendadorJogos:
         removidos = antes - len(self.jogos)
         if removidos:
             log.info(f'  Agendador: {removidos} jogos removidos da fila')
+    
+    def limpar_antigos(self, minutos_passado=120):
+        """Remove jogos que já passaram faz >N minutos (padrão: 2h).
+        Libera memória de eventos que nunca mais vão ser analisados."""
+        agora = datetime.now(timezone.utc)
+        antes = len(self.jogos)
+        
+        jogos_novos = {}
+        para_limpar = []
+        
+        for eid, dados in self.jogos.items():
+            open_date_str = dados.get('open_date', '')
+            try:
+                # Parse ISO format: "2026-07-04T20:30:00Z"
+                if 'T' in open_date_str:
+                    open_date = datetime.fromisoformat(open_date_str.replace('Z', '+00:00'))
+                else:
+                    continue
+                
+                minutos_desde = (agora - open_date).total_seconds() / 60
+                
+                if minutos_desde > minutos_passado:
+                    para_limpar.append((dados.get('nome_jogo', '?'), minutos_desde))
+                else:
+                    jogos_novos[eid] = dados
+            except:
+                # Se der erro parsing, mantém
+                jogos_novos[eid] = dados
+        
+        self.jogos = jogos_novos
+        removidos = antes - len(self.jogos)
+        
+        if removidos > 0:
+            log.info(f'  🧹 Cache limpo: {removidos} jogos antigos removidos (>120 min passado)')
+            for nome, mins in para_limpar[:3]:  # Log só os 3 primeiros
+                log.debug(f'    - {nome} ({int(mins)} min atrás)')
 
     def status(self) -> str:
         aguardando = sum(1 for d in self.jogos.values() if d['estado'] == 'aguardando')
@@ -1440,6 +1521,8 @@ def rodar_bot():
     while True:
         try:
             aplicar_filtros_supabase()
+            # Gravar métricas a cada ciclo (função tem controle interno de 1h)
+            sb.gravar_metricas_periodico()
             log.info(f'{agendador.status()} | ✅ {stats.jogos_aprovados} aprovados | '
                      f'🔍 {stats.jogos_analisados} analisados | 📡 {stats.chamadas_api} chamadas API')
 
@@ -1481,7 +1564,10 @@ def rodar_bot():
             if mins_desde_resultado >= INTERVALO_RESULTADO_MIN and RESULTADO_DISPONIVEL:
                 ultimo_resultado_auto = agora_utc
                 try:
-                    aprovados_agora = resultado_jogos.atualizar_resultados_do_dia(verbose=False)
+                    aprovados_por_dia = resultado_jogos.atualizar_resultados_pendentes(dias_atras=14, verbose=False)
+                    aprovados_agora = {}
+                    for _dia, _info_dia in aprovados_por_dia.items():
+                        aprovados_agora.update(_info_dia)
                     if aprovados_agora:
                         novos_resultados = [
                             info for info in aprovados_agora.values()
@@ -1606,6 +1692,7 @@ def rodar_bot():
                                     "🆔 betId: `" + str(res_aposta["betId"]) + "`"
                                 )
                                 sb.registrar_aposta_supabase(info, res_aposta)
+                                atualizar_aprovado_com_aposta(event_id, res_aposta)
                             else:
                                 enviar_mensagem(
                                     f"⚠️ *APOSTA FALHOU{sim_tag}*\n"

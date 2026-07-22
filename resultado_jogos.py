@@ -233,6 +233,43 @@ def atualizar_resultados_do_dia(data_str=None, verbose=True):
     return aprovados
 
 
+def atualizar_resultados_pendentes(dias_atras: int = 14, verbose: bool = False) -> dict:
+    """
+    Varre os arquivos aprovados_YYYY-MM-DD.json dos ultimos `dias_atras` dias
+    (incluindo hoje) e tenta resolver qualquer aposta ainda sem resultado_geral.
+
+    Diferente de atualizar_resultados_do_dia(), que so olha o dia atual, esta
+    funcao evita que apostas de dias anteriores fiquem PENDENTE para sempre
+    quando o placar nao estava disponivel na primeira tentativa (jogo adiado,
+    API sem dado ainda, etc).
+
+    Retorna um dict {data_str: aprovados_do_dia} apenas para os dias onde
+    havia pelo menos uma aposta pendente antes de rodar.
+    """
+    resultado_por_dia = {}
+    hoje = datetime.now(FUSO_BRASILIA).date()
+
+    for i in range(dias_atras):
+        data_str = (hoje - timedelta(days=i)).strftime('%Y-%m-%d')
+        aprovados_do_dia = carregar_aprovados(data_str)
+        if not aprovados_do_dia:
+            continue
+
+        tinha_pendente = any(
+            not info.get('resultado_geral') for info in aprovados_do_dia.values()
+        )
+        if not tinha_pendente:
+            continue
+
+        if verbose:
+            print(f'--- Revisando pendencias de {data_str} ---')
+        aprovados_atualizados = atualizar_resultados_do_dia(data_str, verbose=verbose)
+        if aprovados_atualizados:
+            resultado_por_dia[data_str] = aprovados_atualizados
+
+    return resultado_por_dia
+
+
 def resumo_resultados(data_str=None) -> str:
     aprovados = carregar_aprovados(data_str)
     data = data_str or datetime.now(FUSO_BRASILIA).strftime('%d/%m/%Y')

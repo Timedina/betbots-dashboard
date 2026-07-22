@@ -8,6 +8,37 @@ import tempfile
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 
+import time
+from functools import wraps
+
+def retry_exponencial(max_tentativas=3, delay_inicial=1, backoff=2):
+    """Decorator que retenta com backoff exponencial em caso de erro."""
+    def decorador(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            tentativa = 0
+            delay = delay_inicial
+            ultima_excecao = None
+            
+            while tentativa < max_tentativas:
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    tentativa += 1
+                    ultima_excecao = e
+                    if tentativa < max_tentativas:
+                        print(f'[Retry] Tentativa {tentativa}/{max_tentativas} falhou: {e}')
+                        print(f'[Retry] Aguardando {delay}s antes de retry...')
+                        time.sleep(delay)
+                        delay *= backoff
+                    else:
+                        print(f'[Retry] Todas as {max_tentativas} tentativas falharam')
+            
+            raise ultima_excecao
+        return wrapper
+    return decorador
+
+
 load_dotenv(override=True)
 
 EMAIL   = os.getenv("EMAIL")
