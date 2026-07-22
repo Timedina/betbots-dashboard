@@ -64,6 +64,8 @@ ODD_BTTS_MAXIMA_COPA = 2.60  # limite especial para jogos da Copa do Mundo
 APENAS_LAY_01 = True  # True = so entra no LAY 0-1, ignora LAY 1-0
 APENAS_LAY_10 = False  # True = so entra no LAY 1-0, ignora LAY 0-1
 RAZAO_ODD_MAXIMA = 1.8  # max razao odd_01/odd_10 para entrar
+ODD_FAVORITO_SUSPEITO = 1.15  # abaixo disso, favorito e considerado muito forte
+RAZAO_10_01_MAX_FAVORITO_FORTE = 0.75  # odd_10 deve ser <= 75% da odd_01 quando favorito for forte
 
 # Reconexao automatica
 MAX_ERROS_CONSECUTIVOS = 5
@@ -1203,6 +1205,16 @@ def analisar_jogo(event_id: str, nome_jogo: str, minutos: float, market_id_cs_hi
         razao = round(odd_01 / odd_10, 2)
         if razao > RAZAO_ODD_MAXIMA:
             resultado['motivo_reprovacao'].append(f'Razao odd_01/odd_10 alta: {razao} (max {RAZAO_ODD_MAXIMA})')
+            return resultado
+
+    # Filtro de sanity-check: favorito muito forte mas odd_10 nao reflete isso
+    # (dados de Correct Score suspeitos/inconsistentes com o favoritismo real)
+    if odd_favorito and odd_favorito <= ODD_FAVORITO_SUSPEITO and odd_10 and odd_10 > 0:
+        razao_10_01 = odd_10 / odd_01
+        if razao_10_01 > RAZAO_10_01_MAX_FAVORITO_FORTE:
+            resultado['motivo_reprovacao'].append(
+                f'Dados CS suspeitos: favorito forte (odd={odd_favorito}) mas odd_10/odd_01={razao_10_01:.2f}'
+            )
             return resultado
 
     resultado['market_id_cs']        = cs_mercado['marketId']
