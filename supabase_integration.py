@@ -360,6 +360,21 @@ def registrar_metrica_latencia(ms: float):
     _metricas_buffer['latencias'].append(ms)
 
 
+def registrar_metrica_simples(tipo_metrica: str, valor: float, detalhes: dict = None):
+    """Grava uma metrica avulsa direto no Supabase (sem passar pelo buffer horario)."""
+    if not SUPABASE_ATIVO:
+        return
+    try:
+        _client.table('metricas').insert({
+            'bot_id': SUPABASE_BOT_ID,
+            'tipo_metrica': tipo_metrica,
+            'valor': float(valor),
+            'detalhes': detalhes or {},
+        }).execute()
+    except Exception as e:
+        log.warning(f'  Erro ao gravar metrica simples ({tipo_metrica}) no Supabase: {e}')
+
+
 def gravar_metricas_periodico():
     """Grava métricas coletadas no buffer pro Supabase (deve rodar a cada 1h)."""
     global _metricas_buffer

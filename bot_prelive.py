@@ -858,7 +858,12 @@ def tempo_para_inicio(open_date_str: str) -> float:
         return 999
 
 
+_ciclos_zerados_consecutivos = 0
+
+
 def buscar_todos_jogos_do_dia() -> list:
+    global _ciclos_zerados_consecutivos
+
     agora_brasilia      = datetime.now(FUSO_BRASILIA)
     inicio_dia_brasilia = agora_brasilia.replace(hour=0, minute=0, second=0, microsecond=0)
     fim_dia_brasilia    = agora_brasilia.replace(hour=23, minute=59, second=59, microsecond=0)
@@ -882,8 +887,19 @@ def buscar_todos_jogos_do_dia() -> list:
         },
         'id': 1
     })
-    stats.registrar_chamada_api()
-    mercados = bf.chamar_api(rpc) or []
+
+    # A API da Betfair BR as vezes responde vazio sem erro algum (instabilidade
+    # intermitente ja observada em producao). Tenta ate 3x com pequeno intervalo
+    # antes de aceitar que realmente nao ha mercados nesse ciclo.
+    mercados = []
+    for tentativa in range(1, 4):
+        stats.registrar_chamada_api()
+        mercados = bf.chamar_api(rpc) or []
+        if mercados:
+            break
+        if tentativa < 3:
+            log.warning(f'  Betfair retornou 0 mercados (tentativa {tentativa}/3) — retry em 3s...')
+            time.sleep(3)
 
     vistos = set()
     jogos  = []
@@ -899,11 +915,28 @@ def buscar_todos_jogos_do_dia() -> list:
             continue
         if nome_jogo.lower().startswith('test'):
             continue
-
         vistos.add(event_id)
         jogos.append({'event': evento, 'market_id_cs': m.get('marketId', '')})
 
     log.info(f'  CS disponiveis na Betfair BR: {len(mercados)} mercados | {len(jogos)} jogos unicos')
+
+    if sb and hasattr(sb, 'registrar_metrica_simples'):
+        sb.registrar_metrica_simples('mercados_cs_disponiveis', len(mercados))
+
+    if len(mercados) == 0:
+        _ciclos_zerados_consecutivos += 1
+        # Ciclo de recarga roda a cada ~15min -> 8 ciclos ~= 2h de instabilidade continua.
+        if _ciclos_zerados_consecutivos == 8:
+            enviar_mensagem(
+                '⚠️ *Alerta: Betfair sem mercados de Correct Score*\n'
+                '━━━━━━━━━━━━━━━━━━━━\n'
+                f'Ja sao {_ciclos_zerados_consecutivos} consultas seguidas retornando 0 mercados '
+                '(~2h). Pode ser instabilidade da API da Betfair BR — vale checar '
+                'manualmente no app/site se os mercados de Placar Correto estao disponiveis.'
+            )
+    else:
+        _ciclos_zerados_consecutivos = 0
+
     return jogos
 
 
