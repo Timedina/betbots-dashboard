@@ -769,6 +769,32 @@ def processar_comandos(agendador, stats, resultado_jogos, carregar_aprovados_do_
             except Exception as e:
                 responder(chat_id, f'❌ Erro /backtest: {e}')
 
+        # ── /restart ─────────────────────────────────────────────
+        elif texto == '/restart':
+            responder(chat_id, '🔄 Reiniciando bot LAY (bot-betfair.service)...')
+            try:
+                import subprocess
+                subprocess.run(
+                    ['sudo', '-n', 'systemctl', 'restart', 'bot-betfair.service'],
+                    check=True, timeout=15
+                )
+                responder(chat_id, '✅ Bot LAY reiniciado com sucesso.')
+            except Exception as e:
+                responder(chat_id, f'❌ Erro ao reiniciar: {e}')
+
+        # ── /restart_under25 ─────────────────────────────────────
+        elif texto == '/restart_under25':
+            responder(chat_id, '🔄 Reiniciando bot Under 2.5 (bot-under25.service)...')
+            try:
+                import subprocess
+                subprocess.run(
+                    ['sudo', '-n', 'systemctl', 'restart', 'bot-under25.service'],
+                    check=True, timeout=15
+                )
+                responder(chat_id, '✅ Bot Under 2.5 reiniciado com sucesso.')
+            except Exception as e:
+                responder(chat_id, f'❌ Erro ao reiniciar: {e}')
+
         # ── comando desconhecido ──────────────────────────────────
         elif texto.startswith('/'):
             responder(chat_id,

@@ -1149,7 +1149,8 @@ def analisar_jogo(event_id: str, nome_jogo: str, minutos: float, market_id_cs_hi
         motivo_vazio = 'Sem mercados disponiveis na Betfair'
         resultado['motivo_reprovacao'].append(motivo_vazio)
         log.warning(f"  Sem mercados disponiveis (resposta valida vazia) para event_id={event_id} ({nome_jogo}) - evento provavelmente sem cobertura")
-        cache_eventos.registrar(event_id, motivo_vazio, ttl_minutos=240)
+        ttl = CACHE_TTL_MINUTOS if minutos >= 0 else 240
+        cache_eventos.registrar(event_id, motivo_vazio, ttl_minutos=ttl)
         return resultado
 
     cs_mercado     = next((m for m in mercados if m['marketName'] == 'Correct Score'), None)
