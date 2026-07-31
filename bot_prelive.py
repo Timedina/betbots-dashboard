@@ -115,7 +115,7 @@ MINUTOS_MONITOR_POS_KICK = 15    # quantos minutos apos o kickoff monitorar
 
 # IA - Analise Gemini (gratuito via Google AI Studio)
 IA_ATIVA  = True                          # False para desativar sem remover o codigo
-IA_MODELO = "gemini-2.0-flash-lite"  # modelo mais leve, cota free tier maior
+IA_MODELO = "gemini-flash-latest"  # alias sempre aponta pro modelo flash atual (2.0-flash-lite perdeu cota free tier em 31/07/2026)
 
 # ============================================================
 # LIGAS PERMITIDAS
@@ -1293,6 +1293,20 @@ def analisar_jogo(event_id: str, nome_jogo: str, minutos: float, market_id_cs_hi
             resultado['motivo_reprovacao'].append(f'IA recusou: {ia_motivo}')
             return resultado
 
+    # ── Auditoria de "no limite" ─────────────────────────────────
+    margem = 0.10
+    detalhes_limite = []
+    razao_val = locals().get('razao')
+    if odd_01 >= ODD_01_MAXIMA * (1 - margem):
+        detalhes_limite.append(f'odd_01={odd_01} perto do teto {ODD_01_MAXIMA}')
+    if odd_10 and odd_10 >= ODD_10_MAXIMA * (1 - margem):
+        detalhes_limite.append(f'odd_10={odd_10} perto do teto {ODD_10_MAXIMA}')
+    if razao_val is not None and razao_val >= RAZAO_ODD_MAXIMA * (1 - margem):
+        detalhes_limite.append(f'razao={razao_val} perto do teto {RAZAO_ODD_MAXIMA}')
+    if resultado.get('liquidez_disponivel', 0) <= LIQUIDEZ_MINIMA_CS_DISPONIVEL * (1 + margem):
+        detalhes_limite.append(f'liquidez={resultado.get("liquidez_disponivel")} perto do piso {LIQUIDEZ_MINIMA_CS_DISPONIVEL}')
+    resultado['no_limite'] = bool(detalhes_limite)
+    resultado['no_limite_detalhes'] = '; '.join(detalhes_limite)
     resultado['aprovado'] = True
     return resultado
 

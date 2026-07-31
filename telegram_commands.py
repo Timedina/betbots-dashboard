@@ -795,6 +795,51 @@ def processar_comandos(agendador, stats, resultado_jogos, carregar_aprovados_do_
             except Exception as e:
                 responder(chat_id, f'❌ Erro ao reiniciar: {e}')
 
+        # ── /ia_stats ────────────────────────────────────────────
+        elif texto == '/ia_stats':
+            try:
+                import os, json as _json
+                pasta = 'dados_bot'
+                arquivos = sorted([f for f in os.listdir(pasta) if f.startswith('aprovados_')])
+                if not arquivos:
+                    responder(chat_id, 'Nenhum dado de aprovados encontrado ainda.')
+                else:
+                    grupos = {
+                        'ia_ok':   {'v': 0, 'd': 0, 'p': 0},
+                        'ia_indisp': {'v': 0, 'd': 0, 'p': 0},
+                    }
+                    for arq in arquivos:
+                        with open(os.path.join(pasta, arq)) as ff:
+                            jogos = _json.load(ff)
+                        for info in jogos.values():
+                            ia_motivo = info.get('ia_motivo', '')
+                            grupo = 'ia_indisp' if ia_motivo.startswith('IA indisponivel') else 'ia_ok'
+                            result = info.get('resultado_geral', '')
+                            if result == 'VITORIA':
+                                grupos[grupo]['v'] += 1
+                            elif result == 'PERDA':
+                                grupos[grupo]['d'] += 1
+                            else:
+                                grupos[grupo]['p'] += 1
+
+                    def taxa(g):
+                        total_decidido = g['v'] + g['d']
+                        return round(g['v'] / total_decidido * 100, 1) if total_decidido else 0
+
+                    linhas = [
+                        '🤖 *Estatísticas do Filtro IA*',
+                        '━━━━━━━━━━━━━━━━━━━━',
+                        f'*IA avaliou de fato:*',
+                        f'  ✅ {grupos["ia_ok"]["v"]}V / ❌ {grupos["ia_ok"]["d"]}D / ⏳ {grupos["ia_ok"]["p"]}P',
+                        f'  🎯 Taxa de acerto: *{taxa(grupos["ia_ok"])}%*\n',
+                        f'*IA indisponível (aprovado sem filtro):*',
+                        f'  ✅ {grupos["ia_indisp"]["v"]}V / ❌ {grupos["ia_indisp"]["d"]}D / ⏳ {grupos["ia_indisp"]["p"]}P',
+                        f'  🎯 Taxa de acerto: *{taxa(grupos["ia_indisp"])}%*',
+                    ]
+                    responder(chat_id, '\n'.join(linhas))
+            except Exception as e:
+                responder(chat_id, f'❌ Erro /ia_stats: {e}')
+
         # ── comando desconhecido ──────────────────────────────────
         elif texto.startswith('/'):
             responder(chat_id,

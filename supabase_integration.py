@@ -8,7 +8,7 @@ import telegram_client as tg
 log = logging.getLogger('bot')
 
 SUPABASE_URL = os.getenv('SUPABASE_URL', '')
-SUPABASE_KEY = os.getenv('SUPABASE_KEY', '')
+SUPABASE_KEY = os.getenv('SUPABASE_SERVICE_KEY', '')
 SUPABASE_BOT_ID = os.getenv('SUPABASE_BOT_ID', '')
 
 _client = None
@@ -34,8 +34,6 @@ def _validar_analise(info: dict) -> tuple[bool, str]:
         return False, 'event_id vazio'
     if not info.get('nome_jogo'):
         return False, 'nome_jogo vazio'
-    if not info.get('market_id_cs'):
-        return False, 'market_id_cs vazio (jogo não tem Correct Score na Betfair?)'
     # runners_cs_map pode ser vazio no início, é preenchido depois
     return True, ''
 
@@ -92,6 +90,8 @@ def registrar_analise_supabase(info: dict, aprovado: bool, motivos: list = None)
             'ia_motivo':           info.get('ia_motivo', ''),
             'market_id_cs':        info.get('market_id_cs', ''),
             'runners_cs_map':      info.get('runners_cs_map', {}),
+            'no_limite':           info.get('no_limite', False),
+            'no_limite_detalhes':  info.get('no_limite_detalhes', ''),
         }).execute()
     except Exception as e:
         _circuit_breaker.registrar_falha()

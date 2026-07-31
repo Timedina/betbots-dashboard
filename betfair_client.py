@@ -41,9 +41,9 @@ def retry_exponencial(max_tentativas=3, delay_inicial=1, backoff=2):
 
 load_dotenv(override=True)
 
-EMAIL   = os.getenv("EMAIL")
-SENHA   = os.getenv("SENHA")
-APP_KEY = os.getenv("APP_KEY")
+EMAIL   = os.getenv("BETFAIR_USERNAME")
+SENHA   = os.getenv("BETFAIR_PASSWORD")
+APP_KEY = os.getenv("BETFAIR_APP_KEY")
 
 SESSION_TOKEN = None
 ULTIMO_LOGIN  = None
@@ -81,6 +81,7 @@ def login() -> bool:
             data=f"username={EMAIL}&password={SENHA}",
             cert=(cert_path, key_path),
             headers={"X-Application": APP_KEY, "Content-Type": "application/x-www-form-urlencoded"},
+            timeout=(10, 20),
         )
         data = resp.json()
         if resp.status_code == 200 and data.get("loginStatus") == "SUCCESS":
@@ -102,21 +103,26 @@ def renovar_token_se_necessario() -> bool:
         return login()
     return True
 
-def chamar_api(rpc: str) -> list | None:
+def chamar_api(rpc: str, tentativas: int = 3) -> list | None:
     """Retorna a lista de resultados em caso de sucesso (pode ser vazia
     se a API respondeu normalmente sem resultados), ou None se houve
-    uma falha real (erro de rede, HTTP, timeout, etc.)."""
+    uma falha real (erro de rede, HTTP, timeout, etc.) apos esgotar as tentativas.
+    Retry com backoff so para falhas transitorias (timeout/rede); erro HTTP nao retenta."""
     renovar_token_se_necessario()
     url = "https://api.betfair.bet.br/exchange/betting/json-rpc/v1"
     headers = {"X-Application": APP_KEY, "X-Authentication": SESSION_TOKEN, "content-type": "application/json"}
-    try:
-        req = urllib.request.Request(url, rpc.encode("utf-8"), headers)
-        raw = urllib.request.urlopen(req).read().decode("utf-8")
-        return json.loads(raw).get("result", [])
-    except urllib.error.HTTPError as e:
-        print(f"[Betfair] HTTPError: {e.code} {e.read().decode()}")
-    except Exception as e:
-        print(f"[Betfair] Erro: {e}")
+    for tentativa in range(1, tentativas + 1):
+        try:
+            req = urllib.request.Request(url, rpc.encode("utf-8"), headers)
+            raw = urllib.request.urlopen(req, timeout=15).read().decode("utf-8")
+            return json.loads(raw).get("result", [])
+        except urllib.error.HTTPError as e:
+            print(f"[Betfair] HTTPError: {e.code} {e.read().decode()}")
+            break
+        except Exception as e:
+            print(f"[Betfair] Erro (tentativa {tentativa}/{tentativas}): {e}")
+            if tentativa < tentativas:
+                time.sleep(2 * tentativa)
     return None
 
 def listar_mercados(event_id: str, tipos: list = None) -> list:

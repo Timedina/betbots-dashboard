@@ -21,7 +21,7 @@ def enviar_mensagem(texto: str, chat_id: str = None):
             'chat_id': cid,
             'text': texto,
             'parse_mode': 'Markdown'
-        })
+        }, timeout=10)
         if resp.status_code == 200:
             print(f'[Telegram] Mensagem enviada!')
         else:
