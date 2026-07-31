@@ -135,3 +135,18 @@ Requer env vars: ODDSPAPI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_KEY
 - Nota separada: LIGAS_PERMITIDAS esta vazia/sem restricao atualmente, qualquer liga passa pela checagem de mercado.
 - Adicionado comando /restart (reinicia bot-betfair.service) e /restart_under25 (reinicia bot-under25.service) em telegram_commands.py, reaproveitando sudoers ja configurado para o watchdog (sudo -n systemctl restart funciona sem senha). Backup: telegram_commands.py.bak_restart_cmd.
 - Confirmado separadamente nesta sessao: bug do 26/07 (market_id_cs vazio nao gravava em analises) segue corrigido; observacao pendente do campo "horario" vindo como "--:--" em analises segue nao investigada.
+
+## Atualização 31/07/2026 02:05 — Auditoria "no_limite" e diagnóstico do filtro de IA
+
+- **Feature nova**: auditoria "no_limite" adicionada em `analisar_jogo()` (bot_prelive.py), logo antes de `resultado['aprovado'] = True`. Marca `resultado['no_limite']` (bool) e `resultado['no_limite_detalhes']` (texto) quando odd_01, odd_10, razão odd_01/odd_10 ou liquidez_disponivel estão a até 10% (margem=0.10) do teto/piso configurado nos filtros. Campos gravados em `supabase_integration.py` na tabela `analises` (`no_limite`, `no_limite_detalhes`).
+  - Primeira tentativa de patch via script Python falhou silenciosamente (string `old` sem a linha em branco real do arquivo → `count()==0` → abortou sem quebrar nada). Segunda tentativa corrigida, sintaxe validada (`ast.parse`), diff conferido, `bot-betfair.service` reiniciado sem erros no journal.
+  - Backups: `bot_prelive.py.bak_no_limite`, `bot_prelive.py.bak_no_limite2`, `supabase_integration.py.bak_no_limite`.
+
+- **Causa raiz encontrada — filtro de IA nunca vetou nenhum jogo**: query no Supabase confirmou 0 vetos da IA em 4050 análises reprovadas no histórico, e apenas 21 consultas reais registradas (`ia_motivo` sem "IA indisponivel"). Causa: **Gemini 2.0 Flash Lite perdeu a cota do free tier em 31/07/2026**, fazendo toda chamada cair em fallback (aprova automaticamente sem checagem real da IA).
+  - Fix: `IA_MODELO` em `bot_prelive.py` (linha 118) trocado de `"gemini-2.0-flash-lite"` para o alias `"gemini-flash-latest"` (sempre aponta pro modelo Flash mais atual do Google, evita quebra por descontinuação de versão específica — trade-off: menos controle sobre quando o comportamento do modelo muda).
+  - Medições históricas de desempenho com_ia vs sem_ia (feitas antes da troca) refletem majoritariamente o modelo antigo/quebrado — **precisam ser refeitas** olhando só `analisado_em >= '2026-07-31'`.
+  - Validação pendente: ainda não foi possível confirmar o modelo novo respondendo de verdade — na janela testada (madrugada, ligas menores como Colômbia/Costa Rica) todos os jogos foram reprovados pelos filtros numéricos (odd fora de faixa, razão odd_01/odd_10 alta) antes de chegar na etapa da IA. Repetir teste em horário com jogos de ligas do filtro principal (Brasileirão, Premier League etc.) com: `journalctl -u bot-betfair.service --since "1 hour ago" | grep "🤖 IA:"`
+
+- **Melhorias sugeridas para o filtro de IA (ainda não implementadas)**:
+  1. Alerta via Telegram se N consultas seguidas caírem em fallback "IA indisponivel" (hoje é só log silencioso — foi assim que a quebra do free tier passou despercebida)
+  2. Gravar qual modelo respondeu em cada análise (hoje `ia_motivo` não registra isso; como `gemini-flash-latest` é alias, o modelo por trás pode mudar sem aviso)
