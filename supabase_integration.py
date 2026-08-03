@@ -156,6 +156,9 @@ def atualizar_resultado_aposta_supabase(event_id: str, resultado_geral: str, pla
     """Atualiza uma aposta existente com o resultado final (VITORIA/PERDA) e o PnL."""
     if not SUPABASE_ATIVO:
         return
+    if not resultado_geral:
+        log.info(f'  Resultado ainda indeterminado para event_id={event_id} (placar: {placar_final}) — mantendo PENDENTE')
+        return
     try:
         status = 'VITORIA' if resultado_geral == 'VITORIA' else 'PERDA'
         _client.table('apostas').update({

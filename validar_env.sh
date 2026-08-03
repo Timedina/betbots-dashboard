@@ -17,6 +17,11 @@ VARS_ESPERADAS=(
   "ODDSPAPI_API_KEY"
 )
 
+# Vars opcionais: alertam mas nao bloqueiam o restart (o codigo ja tem fallback)
+VARS_OPCIONAIS=(
+  "GEMINI_API_KEY"
+)
+
 echo "=== Validando $ENV_FILE ==="
 
 if [ ! -f "$ENV_FILE" ]; then
@@ -35,6 +40,22 @@ for VAR in "${VARS_ESPERADAS[@]}"; do
     if [ "$TAMANHO" -eq 0 ]; then
       echo "⚠️  VAZIO: $VAR (existe mas sem valor)"
       ERROS=$((ERROS + 1))
+    else
+      echo "✅ OK: $VAR (tamanho: $TAMANHO)"
+    fi
+  fi
+done
+
+# Vars opcionais: so alertam, nao contam como erro
+for VAR in "${VARS_OPCIONAIS[@]}"; do
+  LINHA=$(grep -E "^${VAR}=" "$ENV_FILE")
+  if [ -z "$LINHA" ]; then
+    echo "⚠️  OPCIONAL FALTANDO: $VAR (bot usa fallback, mas funcionalidade fica degradada)"
+  else
+    VALOR="${LINHA#*=}"
+    TAMANHO=${#VALOR}
+    if [ "$TAMANHO" -eq 0 ]; then
+      echo "⚠️  OPCIONAL VAZIO: $VAR (existe mas sem valor — bot usa fallback)"
     else
       echo "✅ OK: $VAR (tamanho: $TAMANHO)"
     fi

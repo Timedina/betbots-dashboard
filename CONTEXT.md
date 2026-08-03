@@ -167,3 +167,22 @@ Requer env vars: ODDSPAPI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_KEY
   - `git status` final: repo limpo, sem lixo, sem modificações pendentes.
 
 - **Próximo passo decidido**: revisar depois de um período com o modelo novo (`gemini-flash-latest`) se o filtro de IA realmente veta jogos ruins ou é só "carimbo de aprovado" sem impacto real — comparar grupos com/sem veto real usando `analisado_em >= '2026-07-31'`.
+
+## Atualização 03/08/2026 23:00 — Segundo bug de mascaramento (status PERDA falso) + GEMINI_API_KEY ausente corrigida
+
+- **Bug encontrado**: `atualizar_resultado_aposta_supabase()` em `supabase_integration.py` tinha `status = 'VITORIA' if resultado_geral == 'VITORIA' else 'PERDA'` — qualquer `resultado_geral` que não fosse exatamente `'VITORIA'`, incluindo `None` (resultado ainda indeterminado, placar não obtido), virava `'PERDA'` no banco. Encontrado no jogo Deportes Limache v Nublense (Chilean Primera Division, event_id 35870119, 02/08): mercado com liquidez muito baixa (£139 disponível), odd_lay nunca foi capturada (`null` no JSON local), placar nunca resolvido (`"Indisponivel"`), mas apareceu no dashboard como PERDA com PnL=0.
+
+- **Fix aplicado**: adicionado `if not resultado_geral: return` (mantém PENDENTE) antes de decidir o status. Backup: `supabase_integration.py.bak_status_fix`.
+
+- **Correção do dado histórico**: consultado via Supabase MCP todos os registros com `status='PERDA' AND (pnl IS NULL OR pnl=0)` — encontrado apenas esse 1 registro (não é padrão espalhado). Corrigido manualmente de volta para `PENDENTE` (placar_final e pnl limpos) direto no Supabase.
+
+- **Verificação do gráfico PnL**: dia 01/08 mostrava -69,14u — conferido registro a registro, bate exatamente com a soma dos 6 jogos do dia (-100 do FC Basel v Lausanne + 5 vitórias pequenas somando +30,86). Não há mais nenhum registro com bug nesse dia; é variância real da estratégia (perde a liability inteira raramente, ganha pouco na maioria das vezes).
+
+- **GEMINI_API_KEY ausente**: descoberto que a variável não existia no `.env`, causando `"IA indisponivel (HTTP 403)"` em toda consulta desde sempre (diferente da causa de 31/07, que foi cota esgotada — aqui era falta de credencial). Como o código aprova por padrão quando a IA falha ("para não bloquear o bot"), toda análise estava passando sem checagem real de IA. Chave gerada em https://aistudio.google.com/apikey e adicionada ao `.env`.
+
+- **`validar_env.sh` atualizado**: criada categoria de variáveis opcionais (`VARS_OPCIONAIS`) que geram aviso mas não bloqueiam o restart — `GEMINI_API_KEY` adicionada nessa lista, já que o bot tem fallback funcional na ausência dela, mas fica degradado (sem checagem real de IA). Backup: `validar_env.sh.bak_gemini`.
+
+- **Pendência de confirmação**: aguardando um jogo passar por todos os filtros numéricos e chegar na etapa de consulta de IA para confirmar que o Gemini está respondendo de verdade agora (não em fallback). Checar com: `journalctl -u bot-betfair.service --since "X minutes ago" | grep -i "🤖 IA\|ia_motivo"`.
+
+- **Nota de segurança**: a chave `GEMINI_API_KEY` foi colada em texto puro numa sessão de chat durante a configuração — mesmo padrão de exposição já registrado para `ODDSPAPI_API_KEY` e `SUPABASE_SERVICE_KEY` anteriormente. Considerar rotacionar via https://aistudio.google.com/apikey se for prudente.
+
