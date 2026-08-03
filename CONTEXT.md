@@ -186,3 +186,27 @@ Requer env vars: ODDSPAPI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_KEY
 
 - **Nota de segurança**: a chave `GEMINI_API_KEY` foi colada em texto puro numa sessão de chat durante a configuração — mesmo padrão de exposição já registrado para `ODDSPAPI_API_KEY` e `SUPABASE_SERVICE_KEY` anteriormente. Considerar rotacionar via https://aistudio.google.com/apikey se for prudente.
 
+
+## Atualização 03/08/2026 23:30 — Análise de melhorias do projeto (pendente de execução)
+
+- **Medir consumo real de API Betfair**: comando pra somar chamadas do dia (contador zera a cada restart):
+  `journalctl -u bot-betfair.service --since "today" --no-pager | grep -oP '(?<=📡 )\d+(?= chamadas API)' | awk 'BEGIN{max=0; total=0} {if($1<max){total+=max; max=$1} else {max=$1}} END{total+=max; print "Total estimado hoje:", total}'`
+  Ainda não executado/confirmado nesta sessão.
+
+- **Melhorias prioridade ALTA**:
+  1. Batching de `listar_mercados()`: hoje faz 1 chamada por event_id. A API da Betfair aceita lista de eventIds no mesmo filtro — trocar para 1 chamada por ciclo em vez de N reduziria consumo de API substancialmente.
+  2. Padronizar tratamento de erro: criar `class BetfairSessionError(Exception)` e usar de forma consistente em vez de `return None`/`return []`, que já causou 2 bugs de "falha silenciosa" hoje (chamar_api mascarando sessão expirada, e status PERDA falso). Erro deveria sempre ser explícito, nunca inferido por ausência de dado.
+
+- **Melhorias prioridade MÉDIA**:
+  1. Repopular `LIGAS_PERMITIDAS` (está vazia hoje) — bot analisa qualquer liga incluindo femininas/sub-21/menores sem cobertura Betfair, gerando ruído e chamadas de API desperdiçadas.
+  2. Investigar duplicação de log ("Login OK!" aparecendo 10x no mesmo segundo em 02/08) — sugere handler de logging duplicado.
+  3. Dashboard/heartbeat de saúde da API (última chamada OK, taxa de erro recente, status sessão/IA) — hoje só se descobre problema pelo sintoma no dashboard de apostas.
+  4. Relatório por liga só deveria mostrar conclusões com n >= 10 (hoje quase todas as ligas têm n=1 — risco de decisão por ruído estatístico).
+  5. Organizar backups `.bak_*` em pasta `backups/` com timestamp em vez de acumular soltos no diretório principal.
+  6. Expandir `test_resultado_jogos.py` para cobrir casos de borda (placar indisponível, odd_lay nula) — pegaria automaticamente bugs como o do Deportes Limache antes de produção.
+  7. `betfair_client.py` duplicado entre `bot-prelive-betfair` e `bot-under25` — risco de aplicar fix em um e esquecer o outro. Considerar módulo compartilhado.
+
+- **Melhorias prioridade BAIXA**: rotacionar chaves expostas em chat (ODDSPAPI_API_KEY, SUPABASE_SERVICE_KEY, GEMINI_API_KEY); considerar secrets manager da Oracle Cloud.
+
+- **Estratégico**: formalizar regra tipo "não altero filtro de produção sem N>=30 amostras + teste de significância" antes de decidir incluir/excluir ligas ou ajustar thresholds, dado o volume ainda baixo por segmento.
+
