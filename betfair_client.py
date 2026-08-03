@@ -98,7 +98,7 @@ def renovar_token_se_necessario() -> bool:
     if ULTIMO_LOGIN is None:
         return login()
     horas = (datetime.now(timezone.utc) - ULTIMO_LOGIN).total_seconds() / 3600
-    if horas >= 6:
+    if horas >= 2:
         print("[Betfair] Renovando token...")
         return login()
     return True
@@ -115,7 +115,17 @@ def chamar_api(rpc: str, tentativas: int = 3) -> list | None:
         try:
             req = urllib.request.Request(url, rpc.encode("utf-8"), headers)
             raw = urllib.request.urlopen(req, timeout=15).read().decode("utf-8")
-            return json.loads(raw).get("result", [])
+            parsed = json.loads(raw)
+            if "error" in parsed:
+                erro = parsed["error"]
+                print(f"[Betfair] Erro JSON-RPC: {erro}")
+                if "INVALID_SESSION" in str(erro):
+                    login()
+                    if tentativa < tentativas:
+                        time.sleep(2 * tentativa)
+                        continue
+                return None
+            return parsed.get("result", [])
         except urllib.error.HTTPError as e:
             print(f"[Betfair] HTTPError: {e.code} {e.read().decode()}")
             break

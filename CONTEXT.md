@@ -150,3 +150,20 @@ Requer env vars: ODDSPAPI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_KEY
 - **Melhorias sugeridas para o filtro de IA (ainda não implementadas)**:
   1. Alerta via Telegram se N consultas seguidas caírem em fallback "IA indisponivel" (hoje é só log silencioso — foi assim que a quebra do free tier passou despercebida)
   2. Gravar qual modelo respondeu em cada análise (hoje `ia_motivo` não registra isso; como `gemini-flash-latest` é alias, o modelo por trás pode mudar sem aviso)
+
+## Atualização 31/07/2026 02:40 — Systemd validando .env antes do start + limpeza e commit do repositório
+
+- **ExecStartPre no unit file**: adicionado `ExecStartPre=/home/ubuntu/bot-prelive-betfair/validar_env.sh` em `bot-betfair.service` (editado via `systemctl edit --full`). O `validar_env.sh` já retornava `exit 1` nos caminhos de erro (confirmado antes de aplicar) — agora o systemd bloqueia o start/restart do serviço se faltar env var esperada ou sobrar nome legado (EMAIL, SENHA, APP_KEY, SUPABASE_KEY), automaticamente, seja restart manual, via watchdog ou via comando `/restart` do Telegram. Validado com `daemon-reload` + restart: subiu limpo, sem erro no `ExecStartPre`.
+
+- **Organização do repositório `bot-prelive-betfair`**: `git status` revelou 7 arquivos modificados nunca commitados (todos os patches recentes: timeouts, IA_MODELO, no_limite, TTL fix, comandos Telegram) e vários scripts de infra nunca versionados.
+  - Removidos arquivos de lixo gerados por comando mal digitado: `.gitignorecd` (continha `.env /home/ubuntu/bot-prelive-betfair`), `0`, `=` (vazios).
+  - Pasta `betbots-dashboard/` estava clonada por engano dentro do repo do bot — movida para `~/betbots-dashboard` (é outro projeto/repo separado).
+  - Scripts de backtest/calibração pontuais apagados: `backtest_filtros_relaxados.py`, `backtest_relaxados_dedup.py`, `batch_collect.py`, `calibration_benchmark.py`, `fetch_fixture_results.py`, `test_supabase2.py`.
+  - `backtest_odd01_18_vs_20.py` mantido localmente, fora do controle de versão — documenta o teste que definiu `ODD_01_MAXIMA=18.0` em produção.
+  - 3 commits organizados enviados ao GitHub (`515af83..c5b8923`):
+    1. `fix: timeouts betfair_client, IA_MODELO gemini-flash-latest, feature no_limite, TTL sem-mercados, comandos telegram restart` (5 arquivos)
+    2. `chore: adiciona scripts de infra (validacao env, watchdog, context, ingest odds)` (validar_env.sh, watchdog_bot.sh, update_context.sh, ingest_historical_odds.py — nunca tinham sido versionados)
+    3. `docs: atualiza CONTEXT.md e gitignore`
+  - `git status` final: repo limpo, sem lixo, sem modificações pendentes.
+
+- **Próximo passo decidido**: revisar depois de um período com o modelo novo (`gemini-flash-latest`) se o filtro de IA realmente veta jogos ruins ou é só "carimbo de aprovado" sem impacto real — comparar grupos com/sem veto real usando `analisado_em >= '2026-07-31'`.
