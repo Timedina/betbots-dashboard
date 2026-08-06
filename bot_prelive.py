@@ -1,8 +1,10 @@
+import re
 import os
 import time
 import json
 import logging
 import betfair_client as bf
+import saude
 try:
     import resultado_jogos
     import telegram_commands
@@ -114,7 +116,7 @@ QUEDA_SAIDA_PERCENTUAL   = 0.20  # odd cai 20%+ -> alerta de saida
 MINUTOS_MONITOR_POS_KICK = 15    # quantos minutos apos o kickoff monitorar
 
 # IA - Analise Gemini (gratuito via Google AI Studio)
-IA_ATIVA  = True                          # False para desativar sem remover o codigo
+IA_ATIVA  = False                         # False para desativar sem remover o codigo
 IA_MODELO = "gemini-flash-latest"  # alias sempre aponta pro modelo flash atual (2.0-flash-lite perdeu cota free tier em 31/07/2026)
 
 # ============================================================
@@ -1087,6 +1089,7 @@ Responda APENAS em JSON, sem texto extra:
                 texto = data["candidates"][0]["content"]["parts"][0]["text"].strip()
                 texto = texto.replace("```json", "").replace("```", "").strip()
                 resultado = json.loads(texto)
+                saude.registrar("ia", True)
                 return resultado.get("aprovado", True), resultado.get("motivo", "")
 
         except urllib.error.HTTPError as e:
@@ -1097,16 +1100,19 @@ Responda APENAS em JSON, sem texto extra:
                 continue
             motivo = f"IA indisponivel (HTTP {e.code})"
             log.warning(f"  \U0001f916 {motivo}, aprovando sem filtro IA: {e}")
+            saude.registrar("ia", False, motivo)
             return True, motivo
 
         except json.JSONDecodeError as e:
             motivo = "IA indisponivel (resposta invalida/truncada)"
             log.warning(f"  \U0001f916 {motivo}: {e}")
+            saude.registrar("ia", False, motivo)
             return True, motivo
 
         except Exception as e:
             motivo = f"IA indisponivel ({type(e).__name__})"
             log.warning(f"  \U0001f916 {motivo}, aprovando sem filtro IA: {e}")
+            saude.registrar("ia", False, motivo)
             return True, motivo
 
     return True, "IA indisponivel (limite de tentativas)"
@@ -1115,6 +1121,23 @@ Responda APENAS em JSON, sem texto extra:
 # ============================================================
 # ANALISE PRINCIPAL
 # ============================================================
+
+LIGAS_EXCLUIDAS_PADROES = [
+    r"\(w\)",
+    r"\bwomen\b",
+    r"feminin",
+    r"\bu-?1[5-9]\b",
+    r"\bu-?2[0-3]\b",
+    r"friendl",
+    r"amistos",
+]
+
+def liga_ou_categoria_excluida(nome_jogo, competition):
+    texto = (str(nome_jogo or "") + " " + str(competition or "")).lower()
+    for padrao in LIGAS_EXCLUIDAS_PADROES:
+        if re.search(padrao, texto):
+            return "Categoria excluida (padrao: " + padrao + ")"
+    return None
 
 def analisar_jogo(event_id: str, nome_jogo: str, minutos: float, market_id_cs_hint: str = '') -> dict:
     resultado = {
@@ -1172,6 +1195,12 @@ def analisar_jogo(event_id: str, nome_jogo: str, minutos: float, market_id_cs_hi
 
     competition = cs_mercado.get('competition', {}).get('name', '')
     resultado['competition'] = competition
+
+    motivo_categoria = liga_ou_categoria_excluida(nome_jogo, competition)
+    if motivo_categoria:
+        resultado['motivo_reprovacao'].append(motivo_categoria)
+        cache_eventos.registrar(event_id, motivo_categoria)
+        return resultado
 
     if LIGAS_PERMITIDAS:
         if not any(liga.lower() in competition.lower() for liga in LIGAS_PERMITIDAS):
