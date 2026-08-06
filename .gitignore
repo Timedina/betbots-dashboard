@@ -37,3 +37,6 @@ __pycache__/
 .DS_Store
 .env
 debug_output.txt
+backtest_odd01_18_vs_20.py
+backfill_placares.py
+logout_diario.sh
