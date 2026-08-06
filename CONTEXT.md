@@ -210,3 +210,42 @@ Requer env vars: ODDSPAPI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_KEY
 
 - **Estratégico**: formalizar regra tipo "não altero filtro de produção sem N>=30 amostras + teste de significância" antes de decidir incluir/excluir ligas ou ajustar thresholds, dado o volume ainda baixo por segmento.
 
+
+## Atualização 03/08/2026 23:55 — Dashboard de saúde simples implementado (/saude no Telegram)
+
+- **Feature nova**: módulo `saude.py` criado com função `registrar(integracao, ok, detalhe="")` que grava em `dados_bot/saude.json` (escrita atômica via `.tmp` + `os.replace`) o histórico de `ok_streak`, `fail_streak`, `ultimo_ok` e `ultimo_erro` por integração. Nunca derruba o bot (`except: pass` interno).
+
+- **Pontos instrumentados**:
+  - `betfair_client.py`: `login()` (sucesso/falha) e `chamar_api()` (sucesso, erro JSON-RPC, HTTPError, erro genérico de tentativa) — 7 pontos no total.
+  - `bot_prelive.py`: `consultar_ia()` — sucesso e os 3 caminhos de falha (HTTPError, JSONDecodeError, Exception genérica).
+  - `supabase_integration.py`: `registrar_analise_supabase()`, `registrar_aposta_supabase()`, `atualizar_resultado_aposta_supabase()` e `verificar_saude_supabase()` — sucesso e falha em cada uma, 9 pontos no total.
+  - `telegram_commands.py`: comando `/saude` novo (não usei `/status` porque esse nome já existia pra outra coisa — uptime/fila/aprovados). Formata cada integração com 🟢 (fail_streak=0), 🟡 (1-2 falhas seguidas) ou 🔴 (3+), e minutos desde o último sucesso.
+
+- **Bug encontrado e corrigido durante a implementação**: `from datetime import datetime, timezone` como import local dentro do handler do `/saude` em `telegram_commands.py` sombreava o `datetime` já importado no topo do arquivo (linha 11) — como Python resolve escopo de variável pra função inteira (não por bloco), isso quebrou qualquer uso de `datetime` que rodasse antes dessa linha dentro da mesma função, com erro `local variable 'datetime' referenced before assignment`. Corrigido removendo o import local, usando o que já existe no topo do módulo.
+
+- **Lição de processo (importante pra próximos patches via heredoc colado no SSH)**: usar `\` como delimitador de string old/new com emoji ou acento (ex: `⚠️`, `não`, `Só`) faz o `count()` do replace falhar silenciosamente com `match count = 0`, porque o paste no terminal corrompe esses bytes multi-byte. Solução: sempre usar âncoras 100% ASCII (sem emoji, sem acento) nas strings de busca/substituição dos scripts de patch em Python.
+
+- **Backups criados**: `betfair_client.py.bak_saude2`, `bot_prelive.py.bak_saude2`, `supabase_integration.py.bak_saude2`, `telegram_commands.py.bak_saude2` (versões anteriores ao patch de saúde, para rollback se necessário).
+
+- **Validado em produção**: `/saude` no Telegram respondendo corretamente após restart, `dados_bot/saude.json` sendo populado (confirmado `betfair: OK ha 0min, falhas seguidas: 0` logo após o restart).
+
+- **Pendente**: aguardar mais tempo de execução pra confirmar que `supabase` e `ia` também aparecem no `/saude` (dependem de inserts/consultas reais acontecerem).
+
+## Atualização 06/08/2026 — Filtro de exclusão de ligas femininas, sub-categorias e amistosos
+
+- **Motivação**: análise das 5 perdas do bot LAY (95 vitórias / 5 perdas, PnL +£89,45) mostrou que o segmento "feminino + sub-15 a sub-23 + amistosos" tinha 13 vitórias / 1 perda mas era **líquido negativo (-£29,17)** — vitórias pequenas (~£5-6) não compensavam a única perda de -£100. Simulação indicou que excluir esse segmento levaria o PnL total de +£89,45 para +£118,62.
+- **Outras hipóteses testadas e descartadas nessa análise** (sem sinal preditivo): `odd_favorito` (perdas espalhadas pela distribuição normal, não concentradas em nenhum extremo relevante com n=5), campo `no_limite` (win rate igual entre no_limite=true/false: ~95% em ambos), `liquidez_disponivel` (média quase idêntica entre vitórias e perdas, ~£1.336 vs £1.362 — nenhuma perda veio de mercado raso).
+- **Nota de dado**: `odd_matched` está `null` em 100% das apostas (todas `simulado=true`) — não existe "dinheiro correspondido" real registrado, só o `stake` teórico calculado por `Liability/(Odd-1)`. Não há ainda captura de profundidade de book (bid/ask) pra estimar risco de execução real.
+- **Implementação em `bot_prelive.py`**:
+  - Adicionado `import re` no topo do arquivo (nao existia antes).
+  - Criada lista `LIGAS_EXCLUIDAS_PADROES` (regex, antes de `analisar_jogo()`): `\(w\)`, `\bwomen\b`, `feminin`, `\bu-?1[5-9]\b`, `\bu-?2[0-3]\b`, `friendl`, `amistos`.
+  - Criada função `liga_ou_categoria_excluida(nome_jogo, competition)` que retorna o motivo se algum padrão bater, ou `None`.
+  - Gancho inserido dentro de `analisar_jogo()`, logo após `resultado['competition'] = competition` e **antes** do filtro `LIGAS_PERMITIDAS` (linha ~1197) — reprova cedo, economizando a chamada de `verificar_favorito_rapido()` (bate na API) em jogos que já seriam excluídos de qualquer forma.
+  - Reprovação registrada em `resultado['motivo_reprovacao']` e no cache (`cache_eventos.registrar`) com o texto `"Categoria excluida (padrao: <padrao>)"`, no mesmo formato dos outros motivos (`Sem Correct Score`, `Liga nao permitida`, etc) — aparece no dashboard normalmente.
+  - Validado: `ast.parse` OK, `validar_env.sh` OK, `bot-betfair.service` reiniciado sem erro.
+  - Commit `7338101` (`feat: filtro de exclusao para ligas femininas, sub-categorias e amistosos`), push feito pro GitHub (`Timedina/bot-prelive-betfair`, branch main).
+- **Pendências**:
+  - Confirmar no log real (`journalctl -u bot-betfair.service`) um evento sendo pego pelo motivo `Categoria excluida`, ainda nao presenciado ao vivo no momento do deploy.
+  - Reavaliar PnL com dados pos-filtro daqui a alguns dias/semanas pra confirmar o ganho estimado de +£29 na pratica.
+  - `LIGAS_PERMITIDAS` continua vazia (nao mexemos nela) — os dois filtros coexistem, esse novo e o antigo (que so entra em acao se a lista for repopulada).
+  - Seguem em aberto de sessoes anteriores: confirmar `gemini-flash-latest` vetando de verdade (nao em fallback), medir consumo real de API Betfair do dia, rotacionar chaves expostas em chat.
