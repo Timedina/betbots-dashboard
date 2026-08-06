@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 
 import time
 from functools import wraps
+import saude
 
 def retry_exponencial(max_tentativas=3, delay_inicial=1, backoff=2):
     """Decorator que retenta com backoff exponencial em caso de erro."""
@@ -72,8 +73,18 @@ def _preparar_certificado() -> tuple[str, str]:
         print("[Betfair] Certificado carregado via arquivos locais.")
     return _cert_path, _key_path
 
+LOGIN_COOLDOWN_SEGUNDOS = 30
+ULTIMA_TENTATIVA_LOGIN = None
+
 def login() -> bool:
-    global SESSION_TOKEN, ULTIMO_LOGIN
+    global SESSION_TOKEN, ULTIMO_LOGIN, ULTIMA_TENTATIVA_LOGIN
+    agora_tentativa = datetime.now(timezone.utc)
+    if ULTIMA_TENTATIVA_LOGIN is not None:
+        segundos = (agora_tentativa - ULTIMA_TENTATIVA_LOGIN).total_seconds()
+        if segundos < LOGIN_COOLDOWN_SEGUNDOS:
+            print(f"[Betfair] Login em cooldown ({segundos:.0f}s desde ultima tentativa) - pulando")
+            return SESSION_TOKEN is not None
+    ULTIMA_TENTATIVA_LOGIN = agora_tentativa
     cert_path, key_path = _preparar_certificado()
     try:
         resp = requests.post(
@@ -88,10 +99,12 @@ def login() -> bool:
             SESSION_TOKEN = data["sessionToken"]
             ULTIMO_LOGIN  = datetime.now(timezone.utc)
             print("[Betfair] Login OK!")
+            saude.registrar("betfair", True)
             return True
         print(f"[Betfair] Falha no login: {resp.text}")
     except Exception as e:
         print(f"[Betfair] Erro no login: {e}")
+        saude.registrar("betfair", False, str(e))
     return False
 
 def renovar_token_se_necessario() -> bool:
@@ -101,6 +114,23 @@ def renovar_token_se_necessario() -> bool:
     if horas >= 2:
         print("[Betfair] Renovando token...")
         return login()
+    return True
+
+def logout() -> bool:
+    global SESSION_TOKEN, ULTIMO_LOGIN
+    if not SESSION_TOKEN:
+        return True
+    try:
+        resp = requests.post(
+            "https://identitysso.betfair.bet.br/api/logout",
+            headers={"X-Application": APP_KEY, "X-Authentication": SESSION_TOKEN, "Accept": "application/json"},
+            timeout=(10, 20),
+        )
+        print(f"[Betfair] Logout: {resp.status_code} {resp.text}")
+    except Exception as e:
+        print(f"[Betfair] Erro no logout: {e}")
+    SESSION_TOKEN = None
+    ULTIMO_LOGIN = None
     return True
 
 def chamar_api(rpc: str, tentativas: int = 3) -> list | None:
@@ -119,18 +149,22 @@ def chamar_api(rpc: str, tentativas: int = 3) -> list | None:
             if "error" in parsed:
                 erro = parsed["error"]
                 print(f"[Betfair] Erro JSON-RPC: {erro}")
+                saude.registrar("betfair", False, str(erro))
                 if "INVALID_SESSION" in str(erro):
                     login()
                     if tentativa < tentativas:
                         time.sleep(2 * tentativa)
                         continue
                 return None
+            saude.registrar("betfair", True)
             return parsed.get("result", [])
         except urllib.error.HTTPError as e:
-            print(f"[Betfair] HTTPError: {e.code} {e.read().decode()}")
+            print(f"[Betfair] HTTPError: {e.code}")
+            saude.registrar("betfair", False, f"HTTPError {e.code}")
             break
         except Exception as e:
             print(f"[Betfair] Erro (tentativa {tentativa}/{tentativas}): {e}")
+            saude.registrar("betfair", False, str(e))
             if tentativa < tentativas:
                 time.sleep(2 * tentativa)
     return None

@@ -4,6 +4,7 @@
 import os
 import logging
 import telegram_client as tg
+import saude
 
 log = logging.getLogger('bot')
 
@@ -95,6 +96,7 @@ def registrar_analise_supabase(info: dict, aprovado: bool, motivos: list = None)
         }).execute()
     except Exception as e:
         _circuit_breaker.registrar_falha()
+        saude.registrar("supabase", False, str(e))
         log.warning(f'  Erro ao gravar analise no Supabase: {e}')
         try:
             erro_dict = e.response.json() if hasattr(e, 'response') else {'message': str(e)}
@@ -106,6 +108,7 @@ def registrar_analise_supabase(info: dict, aprovado: bool, motivos: list = None)
                                      f"Jogo: {info.get('nome_jogo', '?')}")
     else:
         _circuit_breaker.registrar_sucesso()
+        saude.registrar("supabase", True)
 
 
 def registrar_aposta_supabase(info: dict, res_aposta: dict):
@@ -142,8 +145,10 @@ def registrar_aposta_supabase(info: dict, res_aposta: dict):
             'simulado':     res_aposta.get('simulado', True),
             'status':       'PENDENTE',
         }).execute()
+        saude.registrar("supabase", True)
     except Exception as e:
         log.warning(f'  Erro ao gravar aposta no Supabase: {e}')
+        saude.registrar("supabase", False, str(e))
         try:
             erro_dict = e.response.json() if hasattr(e, 'response') else {'message': str(e)}
         except:
@@ -167,8 +172,10 @@ def atualizar_resultado_aposta_supabase(event_id: str, resultado_geral: str, pla
             'pnl':          pnl,
             'resolvido_em': 'now()',
         }).eq('bot_id', SUPABASE_BOT_ID).eq('event_id', str(event_id)).eq('status', 'PENDENTE').execute()
+        saude.registrar("supabase", True)
     except Exception as e:
         log.warning(f'  Erro ao atualizar resultado no Supabase: {e}')
+        saude.registrar("supabase", False, str(e))
         try:
             erro_dict = e.response.json() if hasattr(e, 'response') else {'message': str(e)}
         except:
@@ -298,10 +305,12 @@ def verificar_saude_supabase() -> bool:
     try:
         # Faz um SELECT leve na tabela analises pra testar acesso ao schema
         resp = _client.table('analises').select('id').limit(1).execute()
+        saude.registrar("supabase", True)
         log.debug('  ✅ Saude Supabase: OK')
         return True
     except Exception as e:
         log.warning(f'  ⚠️ Saude Supabase: {e}')
+        saude.registrar("supabase", False, str(e))
         try:
             erro_dict = e.response.json() if hasattr(e, 'response') else {'message': str(e)}
         except:

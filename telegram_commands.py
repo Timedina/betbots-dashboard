@@ -770,6 +770,29 @@ def processar_comandos(agendador, stats, resultado_jogos, carregar_aprovados_do_
                 responder(chat_id, f'❌ Erro /backtest: {e}')
 
         # ── /restart ─────────────────────────────────────────────
+        elif texto == '/saude':
+            try:
+                import json as _json, os as _os
+                from saude import ARQUIVO_SAUDE
+                if not _os.path.exists(ARQUIVO_SAUDE):
+                    responder(chat_id, 'Sem dados de saude ainda.')
+                else:
+                    with open(ARQUIVO_SAUDE) as f:
+                        dados = _json.load(f)
+                    linhas = []
+                    for nome, info in dados.items():
+                        fail_streak = info.get('fail_streak', 0)
+                        emoji = '\U0001f534' if fail_streak >= 3 else ('\U0001f7e1' if fail_streak > 0 else '\U0001f7e2')
+                        ultimo_ok = info.get('ultimo_ok')
+                        minutos = '?'
+                        if ultimo_ok:
+                            delta = datetime.now(timezone.utc) - datetime.fromisoformat(ultimo_ok)
+                            minutos = int(delta.total_seconds() // 60)
+                        linhas.append(f'{emoji} {nome}: OK ha {minutos}min (falhas seguidas: {fail_streak})')
+                    responder(chat_id, '\n'.join(linhas) if linhas else 'Sem dados ainda')
+            except Exception as e:
+                responder(chat_id, f'Erro /saude: {e}')
+
         elif texto == '/restart':
             responder(chat_id, '🔄 Reiniciando bot LAY (bot-betfair.service)...')
             try:
