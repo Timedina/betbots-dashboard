@@ -80,6 +80,8 @@ def registrar_analise_supabase(info: dict, aprovado: bool, motivos: list = None)
             'aprovado':            aprovado,
             'motivos':             motivos or [],
             'odd_favorito':        info.get('odd_favorito'),
+            'odd_zebra':           info.get('odd_zebra'),
+            'odd_empate':          info.get('odd_empate'),
             'nome_favorito':       info.get('favorito', ''),
             'odd_01':              info.get('odd_01'),
             'odd_10':              info.get('odd_10'),

@@ -196,6 +196,8 @@ def salvar_historico_completo(info: dict, aprovado: bool, motivos: list = None):
             'odd_01':              info.get('odd_01'),
             'odd_10':              info.get('odd_10'),
             'odd_favorito':        info.get('odd_favorito'),
+            'odd_zebra':           info.get('odd_zebra'),
+            'odd_empate':          info.get('odd_empate'),
             'favorito':            info.get('favorito', ''),
             'odd_over15':          info.get('odd_over15'),
             'odd_btts':            info.get('odd_btts'),
@@ -973,33 +975,36 @@ def listar_mercados_filtrado(event_id: str) -> list:
 def verificar_favorito_rapido(event_id: str, mercados: list, competition: str = '') -> tuple:
     mo_mercado = next((m for m in mercados if m['marketName'] == 'Match Odds'), None)
     if not mo_mercado:
-        return False, None, None, None
-
+        return False, None, None, None, None, None
     stats.registrar_chamada_api()
     books = bf.listar_odds([mo_mercado['marketId']], ['EX_BEST_OFFERS'])
     if not books:
-        return False, None, None, None
-
+        return False, None, None, None, None, None
     book_mo         = books[0]
     runners_mo_map  = {r['selectionId']: r['runnerName'] for r in mo_mercado.get('runners', [])}
     runners_mo_book = book_mo.get('runners', [])
-
-    odd_favorito  = None
-    nome_favorito = None
+    odd_empate = None
+    times = []
     for runner in runners_mo_book:
         back   = bf.get_back(runner)
         nome_r = runners_mo_map.get(runner['selectionId'], '')
         if nome_r == 'The Draw':
+            odd_empate = back
             continue
-        if back and (odd_favorito is None or back < odd_favorito):
-            odd_favorito  = back
-            nome_favorito = nome_r
-
+        times.append((back, nome_r))
+    odd_favorito  = None
+    nome_favorito = None
+    odd_zebra     = None
+    times_validos = [(o, n) for o, n in times if o]
+    if times_validos:
+        times_validos.sort(key=lambda t: t[0])
+        odd_favorito, nome_favorito = times_validos[0]
+        if len(times_validos) > 1:
+            odd_zebra = times_validos[1][0]
     fav_max = ODD_FAVORITO_MAX_COPA if 'World Cup' in competition else ODD_FAVORITO_MAX
     if not odd_favorito or odd_favorito > fav_max:
-        return False, odd_favorito, nome_favorito, None
-
-    return True, odd_favorito, nome_favorito, book_mo
+        return False, odd_favorito, nome_favorito, None, odd_zebra, odd_empate
+    return True, odd_favorito, nome_favorito, book_mo, odd_zebra, odd_empate
 
 
 def buscar_mercados_restantes_batch(cs_mercado, over15_mercado, btts_mercado) -> dict:
@@ -1130,6 +1135,7 @@ LIGAS_EXCLUIDAS_PADROES = [
     r"\bu-?2[0-3]\b",
     r"friendl",
     r"amistos",
+    r"north american leagues cup",
 ]
 
 def liga_ou_categoria_excluida(nome_jogo, competition):
@@ -1209,13 +1215,15 @@ def analisar_jogo(event_id: str, nome_jogo: str, minutos: float, market_id_cs_hi
             cache_eventos.registrar(event_id, motivo)
             return resultado
 
-    fav_ok, odd_favorito, nome_favorito, book_mo = verificar_favorito_rapido(event_id, mercados, competition)
+    fav_ok, odd_favorito, nome_favorito, book_mo, odd_zebra, odd_empate = verificar_favorito_rapido(event_id, mercados, competition)
     if not fav_ok:
         resultado['motivo_reprovacao'].append(f'Favorito fora faixa: {odd_favorito}')
         return resultado
 
     resultado['favorito']     = nome_favorito
     resultado['odd_favorito'] = odd_favorito
+    resultado['odd_zebra']    = odd_zebra
+    resultado['odd_empate']   = odd_empate
 
     books_restantes = buscar_mercados_restantes_batch(cs_mercado, over15_mercado, btts_mercado)
     if not books_restantes:
