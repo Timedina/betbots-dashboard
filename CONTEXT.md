@@ -249,3 +249,26 @@ Requer env vars: ODDSPAPI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_KEY
   - Reavaliar PnL com dados pos-filtro daqui a alguns dias/semanas pra confirmar o ganho estimado de +£29 na pratica.
   - `LIGAS_PERMITIDAS` continua vazia (nao mexemos nela) — os dois filtros coexistem, esse novo e o antigo (que so entra em acao se a lista for repopulada).
   - Seguem em aberto de sessoes anteriores: confirmar `gemini-flash-latest` vetando de verdade (nao em fallback), medir consumo real de API Betfair do dia, rotacionar chaves expostas em chat.
+
+## Atualização 06/08/2026 (cont.) — Captura de odd_zebra/odd_empate (EM ANDAMENTO)
+
+- **Motivação**: para simular filtro de "diferença de odds do 1x2" (odd_zebra - odd_favorito), verificado que esse dado nunca foi persistido — só `odd_favorito` existe em `analises`. Backtest retroativo via OddsPapi descartado: `fixture_id` da OddsPapi (formato `id1000...`) não bate com `event_id` da Betfair usado nas tabelas do bot, e dos 148 jogos em `backtest_resultados` só ~9-13 caem em ligas com `tournamentId` já mapeado (resto espalhado em 75+ competições nao mapeadas) — amostra pequena demais, mapear tudo seria caro. Decidido capturar ao vivo daqui pra frente em vez de reconstruir historico.
+- **Confirmado via OddsPapi `/v4/markets?sportId=10`**: mercado 1X2 real e `marketId=101` (Full Time Result), outcomes `101`=casa(1), `102`=empate(X), `103`=fora(2) — nao usado ainda, decidimos nao ir por esse caminho (ver acima).
+- **Progresso no codigo (`bot_prelive.py`)**:
+  - `verificar_favorito_rapido()` reescrita: em vez de so guardar a menor odd (favorito) e descartar o resto, agora coleta os 2 times + empate do `book_mo` (que ja vinha completo, sem chamada extra a API) e retorna tambem `odd_zebra` (odd do 2 colocado) e `odd_empate`. Assinatura mudou de 4 pra 6 valores de retorno.
+  - Call site dentro de `analisar_jogo()` (linha ~1215) atualizado pra desempacotar os 2 valores novos e gravar `resultado['odd_zebra']` e `resultado['odd_empate']`.
+  - Ambas as edicoes aplicadas por substituicao posicional de linhas (nao por match de string) porque o arquivo tem quebras de linha em branco inconsistentes que quebravam o `str_replace` por conteudo — mesmo problema ja visto em patches anteriores (`no_limite`, filtro de categoria). Licao reforcada: sempre conferir via `sed -n` as linhas exatas antes de montar o patch.
+  - Backup: `bot_prelive.py.bak_odd_zebra`.
+  - Sintaxe validada (`ast.parse`) apos cada etapa.
+- **RESOLVIDO (07/08/2026)**: migration ja tinha sido aplicada (colunas odd_zebra/odd_empate numeric em analises), supabase_integration.py ja incluia os campos no insert (nao precisou editar), bot-betfair.service reiniciado as 23:55:35 UTC (06/08). Confirmado via Supabase MCP que a fiacao do codigo esta correta ponta a ponta. Poucas analises no restart inicial ainda nao tinham odd_favorito preenchido (esperado, so preenche apos passar do filtro de favorito) — nao era bug, so falta de volume. Commit + push feitos (b27358a) junto com o filtro de Leagues Cup abaixo.
+- **Pendente real**: deixar rodando alguns dias pra acumular amostra de odd_zebra/odd_empate antes de simular filtro de diferenca 1x2.
+
+## Atualização 07/08/2026 — Filtro para "North American Leagues Cup"
+
+- Motivação: jogo Cruz Azul v Philadelphia (North American Leagues Cup) foi aprovado pelo bot LAY apesar de ser uma competição que deveria ser excluída — filtro `LIGAS_EXCLUIDAS_PADROES` (criado 06/08 para feminino/sub/amistoso) não cobria "copa"/"cup" de propósito, já que Copa do Brasil e Copa Libertadores fazem parte da lista de ligas permitidas do bot.
+- Decisão: bloquear especificamente essa competição (`"north american leagues cup"`), sem afetar Copa do Brasil/Libertadores, em vez de um filtro genérico "cup|copa".
+- Fix: adicionado o padrão `r"north american leagues cup"` à lista `LIGAS_EXCLUIDAS_PADROES` em `bot_prelive.py`. Backup: `bot_prelive.py.bak_leagues_cup`.
+- Validado: `ast.parse` OK, `validar_env.sh` OK, `bot-betfair.service` reiniciado ~00:14 UTC (07/08) sem erros no journal, fila e métricas normais.
+- Commit `b27358a` (`feat: captura odd_zebra/odd_empate + filtro North American Leagues Cup`), push feito pro GitHub (`Timedina/bot-prelive-betfair`, branch main). CONTEXT.md commitado separadamente.
+
+*Ultima atualizacao: 07/08/2026*
