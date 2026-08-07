@@ -283,3 +283,14 @@ Requer env vars: ODDSPAPI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_KEY
 - Pendência aberta: checar se `watchdog_bot.sh` (reinicia se journal mudo por 5min) não vai tentar religar o bot automaticamente enquanto pausado via `/pausar` — ainda não verificado.
 
 *Ultima atualizacao: 07/08/2026*
+
+## Atualização 07/08/2026 (cont.) — Comandos /pausar e /retomar no Telegram
+
+- Motivação: não havia forma de pausar o bot LAY manualmente sem SSH.
+- Implementação em `telegram_commands.py`: `/pausar` roda `sudo -n systemctl stop bot-betfair.service`, `/retomar` roda `sudo -n systemctl start bot-betfair.service`, seguindo o mesmo padrão do `/restart` já existente. Backup: `telegram_commands.py.bak_pausar`.
+- Sudoers ajustado: criado `/etc/sudoers.d/watchdog-bot-pause` liberando `stop`/`start` de `bot-betfair.service` sem senha (sudoers anterior só liberava `restart`/`is-active`). Corrigida permissão do arquivo para 0440 (criação inicial ficou com permissão errada, `visudo -c` acusou); validado `visudo -c` OK em todos os arquivos de sudoers.
+- Validado: `ast.parse` OK, `validar_env.sh` OK, `bot-betfair.service` reiniciado ~00:35 UTC (07/08) sem erros no journal.
+- Commit `f1a1762` (`feat: comandos /pausar e /retomar no Telegram para bot LAY`), push feito pro GitHub (`Timedina/bot-prelive-betfair`, branch main).
+- Pendência aberta: checar se `watchdog_bot.sh` (reinicia se journal mudo por 5min) não vai tentar religar o bot automaticamente enquanto pausado via `/pausar` — ainda não verificado.
+
+*Ultima atualizacao: 07/08/2026*
