@@ -804,6 +804,30 @@ def processar_comandos(agendador, stats, resultado_jogos, carregar_aprovados_do_
                 responder(chat_id, '✅ Bot LAY reiniciado com sucesso.')
             except Exception as e:
                 responder(chat_id, f'❌ Erro ao reiniciar: {e}')
+        # ── /pausar ──────────────────────────────────────────────
+        elif texto == '/pausar':
+            responder(chat_id, '⏸️ Pausando bot LAY (bot-betfair.service)...')
+            try:
+                import subprocess
+                subprocess.run(
+                    ['sudo', '-n', 'systemctl', 'stop', 'bot-betfair.service'],
+                    check=True, timeout=15
+                )
+                responder(chat_id, '⏸️ Bot LAY pausado. Use /retomar para religar.')
+            except Exception as e:
+                responder(chat_id, f'❌ Erro ao pausar: {e}')
+        # ── /retomar ─────────────────────────────────────────────
+        elif texto == '/retomar':
+            responder(chat_id, '▶️ Retomando bot LAY (bot-betfair.service)...')
+            try:
+                import subprocess
+                subprocess.run(
+                    ['sudo', '-n', 'systemctl', 'start', 'bot-betfair.service'],
+                    check=True, timeout=15
+                )
+                responder(chat_id, '▶️ Bot LAY retomado com sucesso.')
+            except Exception as e:
+                responder(chat_id, f'❌ Erro ao retomar: {e}')
 
         # ── /restart_under25 ─────────────────────────────────────
         elif texto == '/restart_under25':
