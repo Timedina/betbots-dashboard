@@ -604,6 +604,7 @@ export default function App() {
   const [error, setError] = useState("");
   const [lastUpdate, setLastUpdate] = useState(null);
   const [salvandoChave, setSalvandoChave] = useState(null);
+  const [mostrarApenasReds, setMostrarApenasReds] = useState(false);
 
   const bot = todosBots.find((b) => b.id === botId) || null;
 
@@ -683,6 +684,11 @@ export default function App() {
   const vitorias = apostasComResultado.filter((a) => a.status === "VITORIA").length;
   const derrotas = apostasComResultado.filter((a) => a.status === "PERDA").length;
   const taxaAcerto = apostasComResultado.length ? Math.round((vitorias / apostasComResultado.length) * 100) : 0;
+
+  // Filtro para aba de apostas
+  const apostasFiltradas = mostrarApenasReds
+    ? apostas.filter((a) => Number(a.pnl) < 0)
+    : apostas;
 
   const ABAS = [
     { id: "analises", label: "Analises" },
@@ -869,6 +875,30 @@ export default function App() {
       {tab === "apostas" && (
         <>
           <div className="table-card">
+            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderBottom: "1px solid #2a2a2a" }}>
+              <span style={{ color: "#aaa", fontSize: 13 }}>Filtro:</span>
+              <button
+                onClick={() => setMostrarApenasReds(!mostrarApenasReds)}
+                style={{
+                  background: mostrarApenasReds ? "rgba(255,61,90,0.12)" : "#1c1e22",
+                  border: `1px solid ${mostrarApenasReds ? "rgba(255,61,90,0.4)" : "#3a3c40"}`,
+                  color: mostrarApenasReds ? "#ff3d5a" : "#b4b2a9",
+                  borderRadius: 6,
+                  padding: "4px 12px",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  transition: "all 0.15s",
+                }}
+              >
+                🔴 Apenas Reds
+              </button>
+              <span style={{ color: "#777", fontSize: 11 }}>
+                {mostrarApenasReds
+                  ? `${apostasFiltradas.length} red(s)`
+                  : `${apostas.length} aposta(s)`}
+              </span>
+            </div>
             <table>
               <thead>
                 <tr>
@@ -880,15 +910,21 @@ export default function App() {
                 </tr>
               </thead>
               <tbody>
-                {apostas.length === 0 && !loading && (
-                  <tr><td colSpan={5} className="empty">Nenhuma aposta registrada ainda.</td></tr>
+                {apostasFiltradas.length === 0 && !loading && (
+                  <tr>
+                    <td colSpan={5} className="empty">
+                      {mostrarApenasReds ? "Nenhum red encontrado." : "Nenhuma aposta registrada ainda."}
+                    </td>
+                  </tr>
                 )}
-                {apostas.map((a) => (
-                  <tr key={a.id}>
+                {apostasFiltradas.map((a) => (
+                  <tr key={a.id} style={a.pnl < 0 ? { background: "rgba(255,61,90,0.05)" } : {}}>
                     <td>{a.nome_jogo}</td>
                     <td>{a.odd_lay ?? "—"}</td>
                     <td>{a.status}</td>
-                    <td>{a.pnl != null ? a.pnl : "—"}</td>
+                    <td style={{ color: a.pnl < 0 ? "#ff3d5a" : a.pnl > 0 ? "#4ade80" : "inherit", fontWeight: a.pnl != null && a.pnl < 0 ? 600 : 400 }}>
+                      {a.pnl != null ? a.pnl : "—"}
+                    </td>
                     <td className="muted" style={{ textAlign: "right" }}>{fmtHora(a.apostado_em)}</td>
                   </tr>
                 ))}
