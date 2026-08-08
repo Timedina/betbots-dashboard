@@ -11,7 +11,14 @@
     "favorito": "Atletico MG",
     "liquidez_cs": 38668.04,
     "market_id_cs": "1.255746899",
-    "salvo_em": "17:25:03"
+    "salvo_em": "17:25:03",
+    "placar_final": "2-1",
+    "placar_lay": "0-1",
+    "odd_lay": 11.5,
+    "resultado_geral": "VITORIA",
+    "pnl_estimado": 10.3,
+    "resultado_em": "19:29:47",
+    "fonte_placar": "fallback"
   },
   "35453107": {
     "nome_jogo": "Harbour View FC v Chapelton",
@@ -25,7 +32,14 @@
     "favorito": "Harbour View FC",
     "liquidez_cs": 890.35,
     "market_id_cs": "1.256298690",
-    "salvo_em": "17:35:15"
+    "salvo_em": "17:35:15",
+    "placar_final": "2-0",
+    "placar_lay": "1-0",
+    "odd_lay": 12.0,
+    "resultado_geral": "VITORIA",
+    "pnl_estimado": 10.3,
+    "resultado_em": "19:29:47",
+    "fonte_placar": "fallback"
   },
   "35404800": {
     "nome_jogo": "Juan Pablo II College v UTC Cajamarca",
@@ -39,7 +53,14 @@
     "favorito": "Juan Pablo II College",
     "liquidez_cs": 511.35,
     "market_id_cs": "1.255695207",
-    "salvo_em": "17:40:14"
+    "salvo_em": "17:40:14",
+    "placar_final": "2-1",
+    "placar_lay": "0-1",
+    "odd_lay": 12.0,
+    "resultado_geral": "VITORIA",
+    "pnl_estimado": 10.3,
+    "resultado_em": "19:29:47",
+    "fonte_placar": "fallback"
   },
   "35431044": {
     "nome_jogo": "Universidad de Chile v La Serena",
@@ -53,6 +74,13 @@
     "favorito": "Universidad de Chile",
     "liquidez_cs": 4975.22,
     "market_id_cs": "1.256030558",
-    "salvo_em": "18:55:23"
+    "salvo_em": "18:55:23",
+    "placar_final": "Outro Casa",
+    "placar_lay": "0-1",
+    "odd_lay": 18.5,
+    "resultado_geral": "VITORIA",
+    "pnl_estimado": 10.3,
+    "resultado_em": "19:29:48",
+    "fonte_placar": "fallback"
   }
 }

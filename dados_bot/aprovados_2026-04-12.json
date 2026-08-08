@@ -11,6 +11,13 @@
     "favorito": "Anapolis GO",
     "liquidez_cs": 508.13,
     "market_id_cs": "1.256673641",
-    "salvo_em": "17:11:09"
+    "salvo_em": "17:11:09",
+    "placar_final": "0-2",
+    "placar_lay": "0-1",
+    "odd_lay": 13.5,
+    "resultado_geral": "VITORIA",
+    "pnl_estimado": 10.3,
+    "resultado_em": "19:29:48",
+    "fonte_placar": "fallback"
   }
 }

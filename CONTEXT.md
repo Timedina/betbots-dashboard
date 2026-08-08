@@ -1,0 +1,296 @@
+# Contexto do Projeto — BetBots Platform
+
+> Cole este arquivo no início de qualquer conversa nova (em qualquer login) para retomar
+> o trabalho sem precisar reexplicar tudo.
+
+## Infraestrutura
+- VPS: Oracle Cloud Ubuntu, IP 152.70.220.118, alias SSH oracle-bot
+- Supabase: projeto betbots-platform, ID rxqotlcxujokzujodyhv
+- Dashboard: React em Vercel (betbots-dashboard.vercel.app), repo Timedina/betbots-dashboard
+- Bots (systemd): bot_prelive.py/bot-betfair.service (LAY) e bot_under25.py/bot-under25.service (BACK U2.5)
+
+## Filtros do bot LAY
+- ODD_01_MAXIMA = 20.0
+- RAZAO_ODD_MAXIMA = 1.8 (odd_10/odd_01)
+- Stake = Liability / (Odd - 1), liability fixa £100
+- Ligas: LaLiga, Premier League, Serie A, Ligue 1, Bundesliga, Eredivisie, MLS, Brasileirao A/B, Copa do Brasil, Copa Libertadores, Europa League (Champions League EXCLUIDA)
+
+## Credenciais
+- ODDSPAPI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_KEY -> guardar em .env, nunca em texto puro em chat
+- SUPABASE_URL = https://rxqotlcxujokzujodyhv.supabase.co
+
+## OddsPapi - odds historicas (Betfair Exchange)
+- Host: https://api.oddspapi.io/v4
+- Bookmaker: betfair-ex (nao usar betfair-ex2, e teste)
+- Mercado Correct Score Full Time: marketId=10336 (sportId 10 = futebol)
+  - Outcome 1:0 -> outcomeId=10337
+  - Outcome 0:1 -> outcomeId=10344
+- Limitacoes API para betfair-ex:
+  - /v4/odds-by-tournaments: max 3 tournamentIds por chamada
+  - /v4/historical-odds: exige exatamente 1 outcomeId por chamada
+  - /v4/historical-odds so retorna dados uteis para fixtures FINALIZADAS (statusId=2)
+  - Rate limit (429) - usar pausa entre chamadas
+  - /v4/fixtures aceita tournamentId + from/to (YYYY-MM-DD) para achar jogos finalizados
+- tournamentIds mapeados: LaLiga=8, Premier League=17, Serie A=23, Ligue 1=34, Bundesliga=35, Eredivisie=37, MLS=242, Brasileiro A=325, Copa do Brasil=373, Copa Libertadores=384, Brasileiro B=390, Europa League=679
+
+## Tabela historical_odds (ja criada no Supabase)
+fixture_id, bookmaker_slug, market_id, outcome_id, player_id, odds_record_id, price, bet_limit, active, exchange_back, exchange_lay, odds_created_at, fetched_at, raw_payload
+
+## Script: ingest_historical_odds.py
+Uso principal (jogos finalizados):
+python ingest_historical_odds.py --finished-tournament 325 --date-from 2026-07-16 --date-to 2026-07-23
+Requer env vars: ODDSPAPI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_KEY
+
+## Proximos passos em aberto
+- [ ] Integracao historical_odds ainda NAO ligada ao backtest_lay_v2.py (rodar manual antes de automatizar)
+- [ ] Rotacionar ODDSPAPI_API_KEY e SUPABASE_SERVICE_KEY (foram expostas em chat)
+- [ ] Mover credenciais para .env no VPS
+
+*Ultima atualizacao: 25/07/2026*
+
+## Atualização 25/07/2026 18:11
+- Testado e validado endpoint OddsPapi /v4/historical-odds para Betfair Exchange: exige exatamente 1 outcomeId por chamada (mercado 10336=correct score, outcomes 10337=1:0 e 10344=0:1), so retorna dados uteis para fixtures com statusId=2 (finalizadas), e tem rate limit 429 que exige pausa entre chamadas. Endpoint /v4/odds-by-tournaments tem limite de 3 tournamentIds por chamada para betfair-ex. Script ingest_historical_odds.py atualizado com modo --finished-tournament (busca via /v4/fixtures + from/to) que busca os 2 outcomes por jogo e grava na tabela historical_odds do Supabase, ja criada e testada. Criado fluxo CONTEXT.md + update_context.sh para persistir contexto entre logins/sessoes sem gastar token.
+
+## Atualização 25/07/2026 18:39
+- Coleta completa: 7 jogos do Brasileirao (16-23/07/2026), 2 outcomes cada (1:0 e 0:1), 24178 registros gravados em historical_odds. Todos os 429 de rate limit resolvidos aumentando sleep-seconds para 8. Fluxo .env + script direto no VPS funcionando de ponta a ponta, sem depender de Windows/PowerShell.
+
+## Atualização 25/07/2026 18:58
+- Ativado RLS nas 3 tabelas que estavam expostas (backtest_resultados, metricas, historical_odds), com politica de leitura publica (FOR SELECT USING true) para nao quebrar o dashboard, mantendo escrita bloqueada para quem nao usa service_role_key. Confirmado via Supabase MCP: as 9 tabelas do projeto agora tem RLS ativo.
+
+## Atualização 25/07/2026 20:25
+- Corrigido bug de active=false em historical_odds; benchmark de calibracao rodando ok com filtro de outliers
+
+## Atualização 25/07/2026 23:30
+- Bug critico corrigido: ambos os bots (bot-betfair e bot-under25) estavam em crash loop (200+ restarts) por erro "Expecting value: line 1 column 1 (char 0)" no login da Betfair. Causa raiz: rotacao/reorganizacao do .env (22:48) renomeou as credenciais para BETFAIR_USERNAME/BETFAIR_PASSWORD/BETFAIR_APP_KEY, mas betfair_client.py ainda lia os nomes antigos EMAIL/SENHA/APP_KEY, resultando em credenciais None e HTTP 400 no certlogin.
+- Fix aplicado em betfair_client.py: EMAIL = os.getenv("BETFAIR_USERNAME"), SENHA = os.getenv("BETFAIR_PASSWORD"), APP_KEY = os.getenv("BETFAIR_APP_KEY").
+- Ambos os servicos confirmados saudaveis as 23:26: bot-betfair fazendo login OK e analisando jogos com filtros normais; bot-under25 buscando mercados ao vivo e aplicando filtro de janela de entrada (<5min).
+
+## Atualização 26/07/2026 00:20 — Diagnóstico e correção: dashboard "travado" (analises paradas)
+- Sintoma: dashboard mostrava só registros de 13:06 (horário local), sem atualizar mesmo com bots rodando e gravando localmente.
+- Causa raiz 1 (afetou os DOIS bots, LAY e Under 2.5): supabase_integration.py lia a variavel de ambiente `SUPABASE_KEY`, mas o .env so tinha `SUPABASE_SERVICE_KEY` (renomeada em algum momento do dia, provavelmente durante o setup do OddsPapi/historical_odds). Isso fazia `SUPABASE_ATIVO` ficar False silenciosamente (mensagem de aviso é INFO e é engolida pq acontece antes do logging ser configurado). Ultimo insert real: LAY parou as 16:06:16 UTC, Under25 parou as 13:35:43 UTC.
+- Fix: supabase_integration.py linha 11 alterada para `SUPABASE_KEY = os.getenv('SUPABASE_SERVICE_KEY', '')`.
+- Causa raiz 2 (so afetava o bot LAY): `SUPABASE_BOT_ID` nunca existiu no .env. O bot Under25 nao sofre com isso pq o start_under25.sh exporta SUPABASE_BOT_ID diretamente antes de rodar o python. O bot-betfair.service roda direto (sem wrapper script), entao dependia 100% do .env, que nunca teve essa chave.
+- Fix: adicionado `SUPABASE_BOT_ID=7449c515-4a4e-4ad3-acda-32916034e9c1` ao .env.
+- Validado: apos os dois fixes + restart (23:55 e depois 00:15), bot-betfair voltou a fazer GET /filtros e POST /metricas com sucesso (200/201). bot-under25 confirmado gravando em /apostas (PATCH 200 OK). Insert real em /analises ainda pendente de confirmacao pois nao houve analise completa disparada no momento do teste (fila aguardando janela de horario dos jogos).
+- Licao aprendida: nomes de env vars devem ser padronizados entre .env e os scripts que os leem (EMAIL/SENHA/APP_KEY vs BETFAIR_USERNAME/PASSWORD/APP_KEY tambem tiveram o mesmo tipo de bug hoje, corrigido em betfair_client.py). Vale criar um script de validacao de .env que checa se todas as env vars esperadas pelos bots existem, antes de reiniciar os servicos.
+
+## Atualização 26/07/2026 00:25 — Script de validação de .env criado
+- Criado validar_env.sh: checa presenca e tamanho de todas as env vars esperadas (BETFAIR_*, SUPABASE_*, TELEGRAM_*, ODDSPAPI_API_KEY) e alerta se nomes legados (EMAIL, SENHA, APP_KEY, SUPABASE_KEY) ainda estiverem no .env.
+- Uso recomendado antes de qualquer restart: ./validar_env.sh && sudo systemctl restart bot-betfair.service bot-under25.service
+- Rodado e validado: todas as 9 vars OK, nenhum nome legado presente.
+
+## Atualização 26/07/2026 19:31 — Travamento silencioso do bot-betfair: causa raiz corrigida + watchdog criado
+
+- **Sintoma**: dashboard mostrava análises paradas desde ~10:05-10:10 (horário local). Investigação mostrou que o bot ficou **~6h mudo** (das 13:10 às 18:45) sem gravar nenhum `POST /analises`, mesmo continuando "vivo" — agendando jogos novos e gravando métricas normalmente, sem nenhum erro/warning no log.
+
+- **Diagnóstico**: `top`/`ps` mostraram o processo com 0% CPU. `strace -p <pid> -f -tt` revelou `read()` em loop retornando `EAGAIN` nos dois sockets HTTPS abertos (conexões `ESTAB`, nunca fechadas, nunca retornando dado) — padrão clássico de I/O bloqueado indefinidamente por falta de timeout.
+
+- **Causa raiz confirmada**: nenhuma chamada HTTP em `betfair_client.py` tinha `timeout` configurado:
+  - `login()` — `requests.post(...)` sem timeout
+  - `chamar_api()` — `urllib.request.urlopen(req)` sem timeout (a mais crítica, chamada em todo ciclo via `listar_mercados_filtrado`)
+  
+  Se a rede/Betfair engolisse a resposta silenciosamente, a chamada ficava pendurada pra sempre, sem exceção nem log — travando o loop principal sem qualquer sintoma visível.
+
+- **Fix aplicado** (`betfair_client.py`):
+  - `login()`: adicionado `timeout=(10, 20)` no `requests.post`
+  - `chamar_api()`: adicionado `timeout=15` no `urllib.request.urlopen`
+  - O tratamento de erro já existente (`except Exception`, retorno `None` tratado como falha temporária com cache de TTL curto em `listar_mercados_filtrado`/`analisar_jogo`) passa a disparar corretamente em caso de timeout, em vez do processo ficar pendurado.
+
+- **Validado**: após restart às 19:25:05 UTC, bot voltou a analisar e gravar `/analises` normalmente (4 analisados / 7 chamadas de API no primeiro minuto, fila caindo de 59 → 41).
+
+- **Rede de segurança criada**: `watchdog_bot.sh`, rodando via cron a cada 5 minutos:
+  - Reinicia `bot-betfair.service` se o journal ficar **mudo por 5min** (travamento total)
+  - Reinicia se ficar **sem nenhum `POST /analises` por 3h** (travamento silencioso, mesmo com processo "vivo")
+  - Log em `~/bot-prelive-betfair/watchdog.log`
+  - Sudoers configurado em `/etc/sudoers.d/watchdog-bot` para permitir restart sem senha interativa (necessário pro cron)
+  - **Pendência**: o limite de 3h sem análise foi um chute baseado no incidente de hoje — observar por alguns dias se gera restart falso-positivo em horários de pouco jogo (madrugada) e ajustar `LIMITE_SEM_ANALISE_MIN` em `watchdog_bot.sh` se necessário.
+
+- **Lição aprendida**: qualquer chamada de rede no projeto sem timeout é um risco de travamento silencioso idêntico a este. Vale revisar se `supabase_integration.py` e outras integrações (Telegram, OddsPapi) têm timeout configurado — ainda não verificado.
+
+## Atualização 26/07/2026 21:41 — Bug real encontrado: analises com market_id_cs vazio nunca gravavam no Supabase
+
+- **Sintoma**: usuário reportou que jogos começando agora (Flamengo, Grêmio, América-MG, Bragantino, Caxias do Sul — todos Brasileirão, dentro do filtro de ligas do bot) não apareciam na aba Analises do dashboard, mesmo com o bot rodando saudável (systemd ok, sem crash, sem travamento de I/O).
+
+- **Investigação**:
+  - "Dash parou" inicial (mais cedo no dia) era alarme falso — dashboard batia com o banco, gap de análises se devia ao mecanismo de cache de jogos já reprovados permanentemente (que só grava em `/metricas`, não em `/analises`).
+  - Mas o segundo caso (jogos do Brasileirão às 21:25 UTC) era diferente: log mostrava `Sem mercados disponiveis (resposta valida vazia) — evento provavelmente sem cobertura` seguido de `⚠️ ANALISE NAO VALIDADA: market_id_cs vazio`. Confirmado via Supabase que zero desses jogos foram inseridos em `analises`.
+
+- **Causa raiz confirmada**: `_validar_analise()` em `supabase_integration.py` exigia `market_id_cs` não-vazio como campo obrigatório para permitir o insert em `analises`. Quando a Betfair não tinha (ainda) o mercado Correct Score aberto para um evento — comum logo após o apito inicial —, a análise inteira era descartada silenciosamente, mesmo `market_id_cs` sendo nullable no schema (`event_id` e `nome_jogo` são os únicos campos realmente NOT NULL).
+
+- **Fix aplicado**: removidas as 2 linhas de validação de `market_id_cs` em `_validar_analise()` (`supabase_integration.py`, backup salvo como `.bak`). Diff conferido manualmente antes do restart.
+
+- **Validado**: `bot-betfair.service` reiniciado às 21:41:26 UTC (PID 1247702), subiu limpo, fila recalculada (28→18 aguardando).
+
+- **Pendência de confirmação**: aguardando ~21:55 UTC (próximo jogo real entrando na janela de análise) para confirmar que uma análise com `market_id_cs` vazio agora É gravada corretamente em `analises`.
+
+- **Observação separada, não investigada ainda**: campo `horario` está vindo como `"--:--"` em todos os registros recentes de `analises` — possível bug de preenchimento, verificar depois.
+
+- **Confirmado nesta sessão (não é bug)**: bot Under25 só grava em `analises` quando encontra candidato dentro da janela de entrada (<5min), diferente do LAY que grava todo ciclo — por isso gaps longos (32h+) no Under25 são esperados e não indicam bot travado.
+
+## Atualização 31/07/2026 00:50 — TTL de "sem mercados" corrigido para jogos ao vivo + comando /restart no Telegram
+
+- Bug: `analisar_jogo()` em bot_prelive.py gravava reprovacao "Sem mercados disponiveis na Betfair" com ttl_minutos=240 fixo, independente do jogo ja estar ao vivo. Como uma partida dura ~105min, esse TTL de 4h bania o evento pelo resto do jogo mesmo quando o mercado Correct Score abria minutos depois (confirmado com Coritiba x Cruzeiro: reprovado as 21:25 com "sem mercado", mas mercado real ja aberto com R$43mil correspondidos as 21:30).
+- Fix: `cache_eventos.registrar(event_id, motivo_vazio, ttl_minutos=240)` alterado para usar `CACHE_TTL_MINUTOS` (10min) quando `minutos >= 0` (jogo ao vivo), mantendo 240min so para jogos pre-live. Backup: bot_prelive.py.bak_ttl_fix. Cache do dia (dados_bot/cache_YYYY-MM-DD.json) foi apagado para forcar reavaliacao imediata dos ~85 jogos bloqueados. Servico reiniciado as 00:41 UTC (31/07) sem erros, Cache: 0 bloqueados confirmado no log.
+- Nota: cache usa fuso UTC-3 (Brasilia) no nome do arquivo, nao UTC. Nota: log "Cache: reprovado permanente" e texto fixo generico (aparece tanto para cache realmente permanente quanto para cache dentro de TTL) - nao confiar nesse texto para diagnostico.
+- Nota separada: LIGAS_PERMITIDAS esta vazia/sem restricao atualmente, qualquer liga passa pela checagem de mercado.
+- Adicionado comando /restart (reinicia bot-betfair.service) e /restart_under25 (reinicia bot-under25.service) em telegram_commands.py, reaproveitando sudoers ja configurado para o watchdog (sudo -n systemctl restart funciona sem senha). Backup: telegram_commands.py.bak_restart_cmd.
+- Confirmado separadamente nesta sessao: bug do 26/07 (market_id_cs vazio nao gravava em analises) segue corrigido; observacao pendente do campo "horario" vindo como "--:--" em analises segue nao investigada.
+
+## Atualização 31/07/2026 02:05 — Auditoria "no_limite" e diagnóstico do filtro de IA
+
+- **Feature nova**: auditoria "no_limite" adicionada em `analisar_jogo()` (bot_prelive.py), logo antes de `resultado['aprovado'] = True`. Marca `resultado['no_limite']` (bool) e `resultado['no_limite_detalhes']` (texto) quando odd_01, odd_10, razão odd_01/odd_10 ou liquidez_disponivel estão a até 10% (margem=0.10) do teto/piso configurado nos filtros. Campos gravados em `supabase_integration.py` na tabela `analises` (`no_limite`, `no_limite_detalhes`).
+  - Primeira tentativa de patch via script Python falhou silenciosamente (string `old` sem a linha em branco real do arquivo → `count()==0` → abortou sem quebrar nada). Segunda tentativa corrigida, sintaxe validada (`ast.parse`), diff conferido, `bot-betfair.service` reiniciado sem erros no journal.
+  - Backups: `bot_prelive.py.bak_no_limite`, `bot_prelive.py.bak_no_limite2`, `supabase_integration.py.bak_no_limite`.
+
+- **Causa raiz encontrada — filtro de IA nunca vetou nenhum jogo**: query no Supabase confirmou 0 vetos da IA em 4050 análises reprovadas no histórico, e apenas 21 consultas reais registradas (`ia_motivo` sem "IA indisponivel"). Causa: **Gemini 2.0 Flash Lite perdeu a cota do free tier em 31/07/2026**, fazendo toda chamada cair em fallback (aprova automaticamente sem checagem real da IA).
+  - Fix: `IA_MODELO` em `bot_prelive.py` (linha 118) trocado de `"gemini-2.0-flash-lite"` para o alias `"gemini-flash-latest"` (sempre aponta pro modelo Flash mais atual do Google, evita quebra por descontinuação de versão específica — trade-off: menos controle sobre quando o comportamento do modelo muda).
+  - Medições históricas de desempenho com_ia vs sem_ia (feitas antes da troca) refletem majoritariamente o modelo antigo/quebrado — **precisam ser refeitas** olhando só `analisado_em >= '2026-07-31'`.
+  - Validação pendente: ainda não foi possível confirmar o modelo novo respondendo de verdade — na janela testada (madrugada, ligas menores como Colômbia/Costa Rica) todos os jogos foram reprovados pelos filtros numéricos (odd fora de faixa, razão odd_01/odd_10 alta) antes de chegar na etapa da IA. Repetir teste em horário com jogos de ligas do filtro principal (Brasileirão, Premier League etc.) com: `journalctl -u bot-betfair.service --since "1 hour ago" | grep "🤖 IA:"`
+
+- **Melhorias sugeridas para o filtro de IA (ainda não implementadas)**:
+  1. Alerta via Telegram se N consultas seguidas caírem em fallback "IA indisponivel" (hoje é só log silencioso — foi assim que a quebra do free tier passou despercebida)
+  2. Gravar qual modelo respondeu em cada análise (hoje `ia_motivo` não registra isso; como `gemini-flash-latest` é alias, o modelo por trás pode mudar sem aviso)
+
+## Atualização 31/07/2026 02:40 — Systemd validando .env antes do start + limpeza e commit do repositório
+
+- **ExecStartPre no unit file**: adicionado `ExecStartPre=/home/ubuntu/bot-prelive-betfair/validar_env.sh` em `bot-betfair.service` (editado via `systemctl edit --full`). O `validar_env.sh` já retornava `exit 1` nos caminhos de erro (confirmado antes de aplicar) — agora o systemd bloqueia o start/restart do serviço se faltar env var esperada ou sobrar nome legado (EMAIL, SENHA, APP_KEY, SUPABASE_KEY), automaticamente, seja restart manual, via watchdog ou via comando `/restart` do Telegram. Validado com `daemon-reload` + restart: subiu limpo, sem erro no `ExecStartPre`.
+
+- **Organização do repositório `bot-prelive-betfair`**: `git status` revelou 7 arquivos modificados nunca commitados (todos os patches recentes: timeouts, IA_MODELO, no_limite, TTL fix, comandos Telegram) e vários scripts de infra nunca versionados.
+  - Removidos arquivos de lixo gerados por comando mal digitado: `.gitignorecd` (continha `.env /home/ubuntu/bot-prelive-betfair`), `0`, `=` (vazios).
+  - Pasta `betbots-dashboard/` estava clonada por engano dentro do repo do bot — movida para `~/betbots-dashboard` (é outro projeto/repo separado).
+  - Scripts de backtest/calibração pontuais apagados: `backtest_filtros_relaxados.py`, `backtest_relaxados_dedup.py`, `batch_collect.py`, `calibration_benchmark.py`, `fetch_fixture_results.py`, `test_supabase2.py`.
+  - `backtest_odd01_18_vs_20.py` mantido localmente, fora do controle de versão — documenta o teste que definiu `ODD_01_MAXIMA=18.0` em produção.
+  - 3 commits organizados enviados ao GitHub (`515af83..c5b8923`):
+    1. `fix: timeouts betfair_client, IA_MODELO gemini-flash-latest, feature no_limite, TTL sem-mercados, comandos telegram restart` (5 arquivos)
+    2. `chore: adiciona scripts de infra (validacao env, watchdog, context, ingest odds)` (validar_env.sh, watchdog_bot.sh, update_context.sh, ingest_historical_odds.py — nunca tinham sido versionados)
+    3. `docs: atualiza CONTEXT.md e gitignore`
+  - `git status` final: repo limpo, sem lixo, sem modificações pendentes.
+
+- **Próximo passo decidido**: revisar depois de um período com o modelo novo (`gemini-flash-latest`) se o filtro de IA realmente veta jogos ruins ou é só "carimbo de aprovado" sem impacto real — comparar grupos com/sem veto real usando `analisado_em >= '2026-07-31'`.
+
+## Atualização 03/08/2026 23:00 — Segundo bug de mascaramento (status PERDA falso) + GEMINI_API_KEY ausente corrigida
+
+- **Bug encontrado**: `atualizar_resultado_aposta_supabase()` em `supabase_integration.py` tinha `status = 'VITORIA' if resultado_geral == 'VITORIA' else 'PERDA'` — qualquer `resultado_geral` que não fosse exatamente `'VITORIA'`, incluindo `None` (resultado ainda indeterminado, placar não obtido), virava `'PERDA'` no banco. Encontrado no jogo Deportes Limache v Nublense (Chilean Primera Division, event_id 35870119, 02/08): mercado com liquidez muito baixa (£139 disponível), odd_lay nunca foi capturada (`null` no JSON local), placar nunca resolvido (`"Indisponivel"`), mas apareceu no dashboard como PERDA com PnL=0.
+
+- **Fix aplicado**: adicionado `if not resultado_geral: return` (mantém PENDENTE) antes de decidir o status. Backup: `supabase_integration.py.bak_status_fix`.
+
+- **Correção do dado histórico**: consultado via Supabase MCP todos os registros com `status='PERDA' AND (pnl IS NULL OR pnl=0)` — encontrado apenas esse 1 registro (não é padrão espalhado). Corrigido manualmente de volta para `PENDENTE` (placar_final e pnl limpos) direto no Supabase.
+
+- **Verificação do gráfico PnL**: dia 01/08 mostrava -69,14u — conferido registro a registro, bate exatamente com a soma dos 6 jogos do dia (-100 do FC Basel v Lausanne + 5 vitórias pequenas somando +30,86). Não há mais nenhum registro com bug nesse dia; é variância real da estratégia (perde a liability inteira raramente, ganha pouco na maioria das vezes).
+
+- **GEMINI_API_KEY ausente**: descoberto que a variável não existia no `.env`, causando `"IA indisponivel (HTTP 403)"` em toda consulta desde sempre (diferente da causa de 31/07, que foi cota esgotada — aqui era falta de credencial). Como o código aprova por padrão quando a IA falha ("para não bloquear o bot"), toda análise estava passando sem checagem real de IA. Chave gerada em https://aistudio.google.com/apikey e adicionada ao `.env`.
+
+- **`validar_env.sh` atualizado**: criada categoria de variáveis opcionais (`VARS_OPCIONAIS`) que geram aviso mas não bloqueiam o restart — `GEMINI_API_KEY` adicionada nessa lista, já que o bot tem fallback funcional na ausência dela, mas fica degradado (sem checagem real de IA). Backup: `validar_env.sh.bak_gemini`.
+
+- **Pendência de confirmação**: aguardando um jogo passar por todos os filtros numéricos e chegar na etapa de consulta de IA para confirmar que o Gemini está respondendo de verdade agora (não em fallback). Checar com: `journalctl -u bot-betfair.service --since "X minutes ago" | grep -i "🤖 IA\|ia_motivo"`.
+
+- **Nota de segurança**: a chave `GEMINI_API_KEY` foi colada em texto puro numa sessão de chat durante a configuração — mesmo padrão de exposição já registrado para `ODDSPAPI_API_KEY` e `SUPABASE_SERVICE_KEY` anteriormente. Considerar rotacionar via https://aistudio.google.com/apikey se for prudente.
+
+
+## Atualização 03/08/2026 23:30 — Análise de melhorias do projeto (pendente de execução)
+
+- **Medir consumo real de API Betfair**: comando pra somar chamadas do dia (contador zera a cada restart):
+  `journalctl -u bot-betfair.service --since "today" --no-pager | grep -oP '(?<=📡 )\d+(?= chamadas API)' | awk 'BEGIN{max=0; total=0} {if($1<max){total+=max; max=$1} else {max=$1}} END{total+=max; print "Total estimado hoje:", total}'`
+  Ainda não executado/confirmado nesta sessão.
+
+- **Melhorias prioridade ALTA**:
+  1. Batching de `listar_mercados()`: hoje faz 1 chamada por event_id. A API da Betfair aceita lista de eventIds no mesmo filtro — trocar para 1 chamada por ciclo em vez de N reduziria consumo de API substancialmente.
+  2. Padronizar tratamento de erro: criar `class BetfairSessionError(Exception)` e usar de forma consistente em vez de `return None`/`return []`, que já causou 2 bugs de "falha silenciosa" hoje (chamar_api mascarando sessão expirada, e status PERDA falso). Erro deveria sempre ser explícito, nunca inferido por ausência de dado.
+
+- **Melhorias prioridade MÉDIA**:
+  1. Repopular `LIGAS_PERMITIDAS` (está vazia hoje) — bot analisa qualquer liga incluindo femininas/sub-21/menores sem cobertura Betfair, gerando ruído e chamadas de API desperdiçadas.
+  2. Investigar duplicação de log ("Login OK!" aparecendo 10x no mesmo segundo em 02/08) — sugere handler de logging duplicado.
+  3. Dashboard/heartbeat de saúde da API (última chamada OK, taxa de erro recente, status sessão/IA) — hoje só se descobre problema pelo sintoma no dashboard de apostas.
+  4. Relatório por liga só deveria mostrar conclusões com n >= 10 (hoje quase todas as ligas têm n=1 — risco de decisão por ruído estatístico).
+  5. Organizar backups `.bak_*` em pasta `backups/` com timestamp em vez de acumular soltos no diretório principal.
+  6. Expandir `test_resultado_jogos.py` para cobrir casos de borda (placar indisponível, odd_lay nula) — pegaria automaticamente bugs como o do Deportes Limache antes de produção.
+  7. `betfair_client.py` duplicado entre `bot-prelive-betfair` e `bot-under25` — risco de aplicar fix em um e esquecer o outro. Considerar módulo compartilhado.
+
+- **Melhorias prioridade BAIXA**: rotacionar chaves expostas em chat (ODDSPAPI_API_KEY, SUPABASE_SERVICE_KEY, GEMINI_API_KEY); considerar secrets manager da Oracle Cloud.
+
+- **Estratégico**: formalizar regra tipo "não altero filtro de produção sem N>=30 amostras + teste de significância" antes de decidir incluir/excluir ligas ou ajustar thresholds, dado o volume ainda baixo por segmento.
+
+
+## Atualização 03/08/2026 23:55 — Dashboard de saúde simples implementado (/saude no Telegram)
+
+- **Feature nova**: módulo `saude.py` criado com função `registrar(integracao, ok, detalhe="")` que grava em `dados_bot/saude.json` (escrita atômica via `.tmp` + `os.replace`) o histórico de `ok_streak`, `fail_streak`, `ultimo_ok` e `ultimo_erro` por integração. Nunca derruba o bot (`except: pass` interno).
+
+- **Pontos instrumentados**:
+  - `betfair_client.py`: `login()` (sucesso/falha) e `chamar_api()` (sucesso, erro JSON-RPC, HTTPError, erro genérico de tentativa) — 7 pontos no total.
+  - `bot_prelive.py`: `consultar_ia()` — sucesso e os 3 caminhos de falha (HTTPError, JSONDecodeError, Exception genérica).
+  - `supabase_integration.py`: `registrar_analise_supabase()`, `registrar_aposta_supabase()`, `atualizar_resultado_aposta_supabase()` e `verificar_saude_supabase()` — sucesso e falha em cada uma, 9 pontos no total.
+  - `telegram_commands.py`: comando `/saude` novo (não usei `/status` porque esse nome já existia pra outra coisa — uptime/fila/aprovados). Formata cada integração com 🟢 (fail_streak=0), 🟡 (1-2 falhas seguidas) ou 🔴 (3+), e minutos desde o último sucesso.
+
+- **Bug encontrado e corrigido durante a implementação**: `from datetime import datetime, timezone` como import local dentro do handler do `/saude` em `telegram_commands.py` sombreava o `datetime` já importado no topo do arquivo (linha 11) — como Python resolve escopo de variável pra função inteira (não por bloco), isso quebrou qualquer uso de `datetime` que rodasse antes dessa linha dentro da mesma função, com erro `local variable 'datetime' referenced before assignment`. Corrigido removendo o import local, usando o que já existe no topo do módulo.
+
+- **Lição de processo (importante pra próximos patches via heredoc colado no SSH)**: usar `\` como delimitador de string old/new com emoji ou acento (ex: `⚠️`, `não`, `Só`) faz o `count()` do replace falhar silenciosamente com `match count = 0`, porque o paste no terminal corrompe esses bytes multi-byte. Solução: sempre usar âncoras 100% ASCII (sem emoji, sem acento) nas strings de busca/substituição dos scripts de patch em Python.
+
+- **Backups criados**: `betfair_client.py.bak_saude2`, `bot_prelive.py.bak_saude2`, `supabase_integration.py.bak_saude2`, `telegram_commands.py.bak_saude2` (versões anteriores ao patch de saúde, para rollback se necessário).
+
+- **Validado em produção**: `/saude` no Telegram respondendo corretamente após restart, `dados_bot/saude.json` sendo populado (confirmado `betfair: OK ha 0min, falhas seguidas: 0` logo após o restart).
+
+- **Pendente**: aguardar mais tempo de execução pra confirmar que `supabase` e `ia` também aparecem no `/saude` (dependem de inserts/consultas reais acontecerem).
+
+## Atualização 06/08/2026 — Filtro de exclusão de ligas femininas, sub-categorias e amistosos
+
+- **Motivação**: análise das 5 perdas do bot LAY (95 vitórias / 5 perdas, PnL +£89,45) mostrou que o segmento "feminino + sub-15 a sub-23 + amistosos" tinha 13 vitórias / 1 perda mas era **líquido negativo (-£29,17)** — vitórias pequenas (~£5-6) não compensavam a única perda de -£100. Simulação indicou que excluir esse segmento levaria o PnL total de +£89,45 para +£118,62.
+- **Outras hipóteses testadas e descartadas nessa análise** (sem sinal preditivo): `odd_favorito` (perdas espalhadas pela distribuição normal, não concentradas em nenhum extremo relevante com n=5), campo `no_limite` (win rate igual entre no_limite=true/false: ~95% em ambos), `liquidez_disponivel` (média quase idêntica entre vitórias e perdas, ~£1.336 vs £1.362 — nenhuma perda veio de mercado raso).
+- **Nota de dado**: `odd_matched` está `null` em 100% das apostas (todas `simulado=true`) — não existe "dinheiro correspondido" real registrado, só o `stake` teórico calculado por `Liability/(Odd-1)`. Não há ainda captura de profundidade de book (bid/ask) pra estimar risco de execução real.
+- **Implementação em `bot_prelive.py`**:
+  - Adicionado `import re` no topo do arquivo (nao existia antes).
+  - Criada lista `LIGAS_EXCLUIDAS_PADROES` (regex, antes de `analisar_jogo()`): `\(w\)`, `\bwomen\b`, `feminin`, `\bu-?1[5-9]\b`, `\bu-?2[0-3]\b`, `friendl`, `amistos`.
+  - Criada função `liga_ou_categoria_excluida(nome_jogo, competition)` que retorna o motivo se algum padrão bater, ou `None`.
+  - Gancho inserido dentro de `analisar_jogo()`, logo após `resultado['competition'] = competition` e **antes** do filtro `LIGAS_PERMITIDAS` (linha ~1197) — reprova cedo, economizando a chamada de `verificar_favorito_rapido()` (bate na API) em jogos que já seriam excluídos de qualquer forma.
+  - Reprovação registrada em `resultado['motivo_reprovacao']` e no cache (`cache_eventos.registrar`) com o texto `"Categoria excluida (padrao: <padrao>)"`, no mesmo formato dos outros motivos (`Sem Correct Score`, `Liga nao permitida`, etc) — aparece no dashboard normalmente.
+  - Validado: `ast.parse` OK, `validar_env.sh` OK, `bot-betfair.service` reiniciado sem erro.
+  - Commit `7338101` (`feat: filtro de exclusao para ligas femininas, sub-categorias e amistosos`), push feito pro GitHub (`Timedina/bot-prelive-betfair`, branch main).
+- **Pendências**:
+  - Confirmar no log real (`journalctl -u bot-betfair.service`) um evento sendo pego pelo motivo `Categoria excluida`, ainda nao presenciado ao vivo no momento do deploy.
+  - Reavaliar PnL com dados pos-filtro daqui a alguns dias/semanas pra confirmar o ganho estimado de +£29 na pratica.
+  - `LIGAS_PERMITIDAS` continua vazia (nao mexemos nela) — os dois filtros coexistem, esse novo e o antigo (que so entra em acao se a lista for repopulada).
+  - Seguem em aberto de sessoes anteriores: confirmar `gemini-flash-latest` vetando de verdade (nao em fallback), medir consumo real de API Betfair do dia, rotacionar chaves expostas em chat.
+
+## Atualização 06/08/2026 (cont.) — Captura de odd_zebra/odd_empate (EM ANDAMENTO)
+
+- **Motivação**: para simular filtro de "diferença de odds do 1x2" (odd_zebra - odd_favorito), verificado que esse dado nunca foi persistido — só `odd_favorito` existe em `analises`. Backtest retroativo via OddsPapi descartado: `fixture_id` da OddsPapi (formato `id1000...`) não bate com `event_id` da Betfair usado nas tabelas do bot, e dos 148 jogos em `backtest_resultados` só ~9-13 caem em ligas com `tournamentId` já mapeado (resto espalhado em 75+ competições nao mapeadas) — amostra pequena demais, mapear tudo seria caro. Decidido capturar ao vivo daqui pra frente em vez de reconstruir historico.
+- **Confirmado via OddsPapi `/v4/markets?sportId=10`**: mercado 1X2 real e `marketId=101` (Full Time Result), outcomes `101`=casa(1), `102`=empate(X), `103`=fora(2) — nao usado ainda, decidimos nao ir por esse caminho (ver acima).
+- **Progresso no codigo (`bot_prelive.py`)**:
+  - `verificar_favorito_rapido()` reescrita: em vez de so guardar a menor odd (favorito) e descartar o resto, agora coleta os 2 times + empate do `book_mo` (que ja vinha completo, sem chamada extra a API) e retorna tambem `odd_zebra` (odd do 2 colocado) e `odd_empate`. Assinatura mudou de 4 pra 6 valores de retorno.
+  - Call site dentro de `analisar_jogo()` (linha ~1215) atualizado pra desempacotar os 2 valores novos e gravar `resultado['odd_zebra']` e `resultado['odd_empate']`.
+  - Ambas as edicoes aplicadas por substituicao posicional de linhas (nao por match de string) porque o arquivo tem quebras de linha em branco inconsistentes que quebravam o `str_replace` por conteudo — mesmo problema ja visto em patches anteriores (`no_limite`, filtro de categoria). Licao reforcada: sempre conferir via `sed -n` as linhas exatas antes de montar o patch.
+  - Backup: `bot_prelive.py.bak_odd_zebra`.
+  - Sintaxe validada (`ast.parse`) apos cada etapa.
+- **RESOLVIDO (07/08/2026)**: migration ja tinha sido aplicada (colunas odd_zebra/odd_empate numeric em analises), supabase_integration.py ja incluia os campos no insert (nao precisou editar), bot-betfair.service reiniciado as 23:55:35 UTC (06/08). Confirmado via Supabase MCP que a fiacao do codigo esta correta ponta a ponta. Poucas analises no restart inicial ainda nao tinham odd_favorito preenchido (esperado, so preenche apos passar do filtro de favorito) — nao era bug, so falta de volume. Commit + push feitos (b27358a) junto com o filtro de Leagues Cup abaixo.
+- **Pendente real**: deixar rodando alguns dias pra acumular amostra de odd_zebra/odd_empate antes de simular filtro de diferenca 1x2.
+
+## Atualização 07/08/2026 — Filtro para "North American Leagues Cup"
+
+- Motivação: jogo Cruz Azul v Philadelphia (North American Leagues Cup) foi aprovado pelo bot LAY apesar de ser uma competição que deveria ser excluída — filtro `LIGAS_EXCLUIDAS_PADROES` (criado 06/08 para feminino/sub/amistoso) não cobria "copa"/"cup" de propósito, já que Copa do Brasil e Copa Libertadores fazem parte da lista de ligas permitidas do bot.
+- Decisão: bloquear especificamente essa competição (`"north american leagues cup"`), sem afetar Copa do Brasil/Libertadores, em vez de um filtro genérico "cup|copa".
+- Fix: adicionado o padrão `r"north american leagues cup"` à lista `LIGAS_EXCLUIDAS_PADROES` em `bot_prelive.py`. Backup: `bot_prelive.py.bak_leagues_cup`.
+- Validado: `ast.parse` OK, `validar_env.sh` OK, `bot-betfair.service` reiniciado ~00:14 UTC (07/08) sem erros no journal, fila e métricas normais.
+- Commit `b27358a` (`feat: captura odd_zebra/odd_empate + filtro North American Leagues Cup`), push feito pro GitHub (`Timedina/bot-prelive-betfair`, branch main). CONTEXT.md commitado separadamente.
+
+*Ultima atualizacao: 07/08/2026*
+
+## Atualização 07/08/2026 (cont.) — Comandos /pausar e /retomar no Telegram
+
+- Motivação: não havia forma de pausar o bot LAY manualmente sem SSH.
+- Implementação em `telegram_commands.py`: `/pausar` roda `sudo -n systemctl stop bot-betfair.service`, `/retomar` roda `sudo -n systemctl start bot-betfair.service`, seguindo o mesmo padrão do `/restart` já existente. Backup: `telegram_commands.py.bak_pausar`.
+- Sudoers ajustado: criado `/etc/sudoers.d/watchdog-bot-pause` liberando `stop`/`start` de `bot-betfair.service` sem senha (sudoers anterior só liberava `restart`/`is-active`). Corrigida permissão do arquivo para 0440 (criação inicial ficou com permissão errada, `visudo -c` acusou); validado `visudo -c` OK em todos os arquivos de sudoers.
+- Validado: `ast.parse` OK, `validar_env.sh` OK, `bot-betfair.service` reiniciado ~00:35 UTC (07/08) sem erros no journal.
+- Commit `f1a1762` (`feat: comandos /pausar e /retomar no Telegram para bot LAY`), push feito pro GitHub (`Timedina/bot-prelive-betfair`, branch main).
+- Pendência aberta: checar se `watchdog_bot.sh` (reinicia se journal mudo por 5min) não vai tentar religar o bot automaticamente enquanto pausado via `/pausar` — ainda não verificado.
+
+*Ultima atualizacao: 07/08/2026*
+
+## Atualização 07/08/2026 (cont.) — Comandos /pausar e /retomar no Telegram
+
+- Motivação: não havia forma de pausar o bot LAY manualmente sem SSH.
+- Implementação em `telegram_commands.py`: `/pausar` roda `sudo -n systemctl stop bot-betfair.service`, `/retomar` roda `sudo -n systemctl start bot-betfair.service`, seguindo o mesmo padrão do `/restart` já existente. Backup: `telegram_commands.py.bak_pausar`.
+- Sudoers ajustado: criado `/etc/sudoers.d/watchdog-bot-pause` liberando `stop`/`start` de `bot-betfair.service` sem senha (sudoers anterior só liberava `restart`/`is-active`). Corrigida permissão do arquivo para 0440 (criação inicial ficou com permissão errada, `visudo -c` acusou); validado `visudo -c` OK em todos os arquivos de sudoers.
+- Validado: `ast.parse` OK, `validar_env.sh` OK, `bot-betfair.service` reiniciado ~00:35 UTC (07/08) sem erros no journal.
+- Commit `f1a1762` (`feat: comandos /pausar e /retomar no Telegram para bot LAY`), push feito pro GitHub (`Timedina/bot-prelive-betfair`, branch main).
+- Pendência aberta: checar se `watchdog_bot.sh` (reinicia se journal mudo por 5min) não vai tentar religar o bot automaticamente enquanto pausado via `/pausar` — ainda não verificado.
+
+*Ultima atualizacao: 07/08/2026*
