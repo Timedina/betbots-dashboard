@@ -642,7 +642,7 @@ function layBadge(odd, resultado, label) {
 
 function resultadoBadge(r) {
   if (r === 'VITORIA')       return '<span class="resultado-badge v">✅ Vitória</span>';
-  if (r === 'PERDA PARCIAL') return '<span class="resultado-badge p">⚠️ Perda</span>';
+  if (r === 'PERDA' || r === 'PERDA PARCIAL') return '<span class="resultado-badge p">⚠️ Perda</span>';
   return '<span class="resultado-badge pend">⏳ Pendente</span>';
 }
 
@@ -654,7 +654,7 @@ function renderJogoAprovado(j) {
   const pnlStr      = pnlVal != null ? (pnlVal >= 0 ? '+' : '') + pnlVal.toFixed(1) + 'u' : '';
   let cls = 'jogo-card';
   if (resultado === 'VITORIA')       cls += ' vitoria';
-  if (resultado === 'PERDA PARCIAL') cls += ' perda';
+  if (resultado === 'PERDA' || resultado === 'PERDA PARCIAL') cls += ' perda';
 
   const resultadoHtml = temResult ? `
     <div class="resultado-row">

@@ -110,7 +110,19 @@ def buscar_nome_runner_vencedor(market_id: str, selection_id: int) -> str:
 
 def determinar_resultado_lay(placar_final: str, info_jogo: dict) -> dict:
     """
-    Determina se o LAY 1-0 e LAY 0-1 ganharam ou perderam
+    Determina o resultado do LAY que foi REALMENTE colocado na Betfair.
+
+    A execucao atual (apostas.py) coloca UM unico LAY (0-1 por padrao, pois
+    APENAS_LAY_01=True), com stake = liability/(odd-1) e liability fixa de
+    LIABILITY_FIXA=100. O PnL deve refletir esa unica posicao (nao o antigo
+    modelo "duplo" 1-0 + 0-1 simultaneos com stake fixo de £10):
+
+      - placar_final == placar_lay -> LAY perde (liability perdida)
+      - caso contrario             -> LAY ganha (stake liquido apos comissao)
+
+    Usa os dados reais gravados pela aposta (stake/odd_lay/placar_lay) em
+    `atualizar_aprovado_com_aposta`; quando ausentes, faz fallback para o
+    cenario histórico (LAY 0-1, liability 100).
     """
     resultado = {
         'placar_final': placar_final,
@@ -123,30 +135,34 @@ def determinar_resultado_lay(placar_final: str, info_jogo: dict) -> dict:
     if not placar_final:
         return resultado
 
-    # Normaliza placar (ex: "1 - 0" → "1-0")
+    # Normaliza placares ("1 - 0" / "1–0" -> "1-0")
     placar = placar_final.replace(' ', '').replace('–', '-')
 
-    odd_10 = info_jogo.get('odd_10', 0)
-    odd_01 = info_jogo.get('odd_01', 0)
-    stake  = 10  # stake padrão por LAY
-    comissao = 0.05
+    # Lay colocado (gravado pela aposta). Fallback 0-1 (APENAS_LAY_01).
+    placar_lay = (info_jogo.get('placar_lay') or '0-1').replace(' ', '').replace('–', '-')
+    odd_lay = float(info_jogo.get('odd_lay') or 0)
+    if odd_lay <= 0:
+        odd_lay = float(info_jogo.get('odd_01') or 0)
 
-    if placar == '1-0':
-        resultado['lay_10'] = 'PERDA'
-        resultado['lay_01'] = 'GANHO'
-        pnl = -stake * (odd_10 - 1) + stake * (1 - comissao)
-        resultado['resultado_geral'] = 'PERDA PARCIAL'
-    elif placar == '0-1':
-        resultado['lay_10'] = 'GANHO'
-        resultado['lay_01'] = 'PERDA'
-        pnl = stake * (1 - comissao) - stake * (odd_01 - 1)
-        resultado['resultado_geral'] = 'PERDA PARCIAL'
+    comissao = 0.0636  # comissao Betfair usada nos backtests de producao
+
+    # Stake real gravado; fallback = liability fixa 100 / (odd-1)
+    stake = float(info_jogo.get('stake') or 0)
+    if stake <= 0:
+        if odd_lay > 1:
+            stake = 100.0 / (odd_lay - 1)  # LIABILITY_FIXA
+        else:
+            stake = 0.0
+
+    if placar == placar_lay:
+        pnl = -(stake * (odd_lay - 1)) if odd_lay > 1 else 0.0
+        resultado['resultado_geral'] = 'PERDA'
     else:
-        resultado['lay_10'] = 'GANHO'
-        resultado['lay_01'] = 'GANHO'
-        pnl = stake * (1 - comissao) * 2
-        resultado['resultado_geral'] = 'VITÓRIA'
+        pnl = stake * (1 - comissao)
+        resultado['resultado_geral'] = 'VITORIA'
 
+    resultado['lay_10'] = 'GANHO' if placar != '1-0' else 'PERDA'
+    resultado['lay_01'] = 'GANHO' if placar != '0-1' else 'PERDA'
     resultado['pnl_estimado'] = round(pnl, 2)
     return resultado
 
@@ -208,7 +224,7 @@ def atualizar_resultados_do_dia(data_str=None, verbose=True):
         atualizados += 1
 
         if verbose:
-            emoji = '✅' if resultado_lay['resultado_geral'] == 'VITÓRIA' else '⚠️'
+            emoji = '✅' if resultado_lay['resultado_geral'] == 'VITORIA' else '⚠️'
             print(f"    {emoji} Placar: {placar_final} | {resultado_lay['resultado_geral']} | PnL: {resultado_lay['pnl_estimado']:+.2f}")
 
     if atualizados > 0:
@@ -220,6 +236,30 @@ def atualizar_resultados_do_dia(data_str=None, verbose=True):
             print('  Nenhum resultado novo encontrado.')
 
     return aprovados
+
+
+def atualizar_resultados_pendentes(dias_atras: int = 14, verbose: bool = False) -> dict:
+    """
+    Atualiza os resultados pendentes dos ultimos `dias_atras` dias (incluindo hoje),
+    reutilizando a mesma logica de atualizacao diaria (`atualizar_resultados_do_dia`).
+
+    Usado pelo bot (bot_prelive.py) no acompanhamento automatico de resultados.
+    Retorna dict {data_str (YYYY-MM-DD): {event_id: info}} apenas com os dias
+    que possuem jogos aprovados salvos, para o chamador processar sem falhar.
+    """
+    por_dia: dict = {}
+    hoje = datetime.now(FUSO_BRASILIA)
+    for offset in range(dias_atras, -1, -1):
+        data_str = (hoje - timedelta(days=offset)).strftime('%Y-%m-%d')
+        try:
+            aprovados = atualizar_resultados_do_dia(data_str=data_str, verbose=verbose)
+        except Exception as e:
+            if verbose:
+                print(f'  Erro ao atualizar resultados de {data_str}: {e}')
+            continue
+        if aprovados:
+            por_dia[data_str] = aprovados
+    return por_dia
 
 
 def resumo_resultados(data_str=None) -> str:
@@ -243,11 +283,12 @@ def resumo_resultados(data_str=None) -> str:
         result = info.get('resultado_geral', '')
         pnl    = info.get('pnl_estimado', 0) or 0
 
-        if result == 'VITÓRIA':
+        result_norm = result.replace('Ó', 'O')  # tolera dados legados com acento
+        if result_norm == 'VITORIA':
             emoji = '✅'
             vitorias += 1
             pnl_total += pnl
-        elif result == 'PERDA PARCIAL':
+        elif result_norm == 'PERDA':
             emoji = '⚠️'
             derrotas += 1
             pnl_total += pnl
@@ -262,7 +303,7 @@ def resumo_resultados(data_str=None) -> str:
     linhas += [
         '━━━━━━━━━━━━━━━━━━━━',
         f'✅ Vitórias: {vitorias} | ⚠️ Perdas: {derrotas} | ⏳ Pendentes: {pendentes}',
-        f'💰 PnL Total: {pnl_total:+.1f} unidades (stake 10/LAY)',
+        f'💰 PnL Total: {pnl_total:+.1f} unidades (liability £100/LAY)',
     ]
 
     return '\n'.join(linhas)
