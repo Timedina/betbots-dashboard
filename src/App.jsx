@@ -603,8 +603,15 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [lastUpdate, setLastUpdate] = useState(null);
-  const [salvandoChave, setSalvandoChave] = useState(null);
-  const [filtroStatusAposta, setFiltroStatusAposta] = useState("todos");
+    const [salvandoChave, setSalvandoChave] = useState(null);
+
+  // NOVO: Estado para filtrar apenas reds
+  const [mostrarApenasReds, setMostrarApenasReds] = useState(false);
+
+  // NOVO: Derivada que filtra apenas reds quando o toggle está ativo
+  const apostasFiltradas = mostrarApenasReds
+    ? apostas.filter((a) => a.pnl < 0)
+    : apostas;
 
   const bot = todosBots.find((b) => b.id === botId) || null;
 
@@ -867,33 +874,31 @@ export default function App() {
           )}
         </div>
       )}
-      {tab === "apostas" && (
+          {tab === "apostas" && (
         <>
           <div className="table-card">
-            <div style={{ padding: "10px 12px", borderBottom: "1px solid #2a2a2a", display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <span style={{ color: "#fff", fontSize: 13, fontWeight: 600, marginRight: 4 }}>Filtro:</span>
-              {[
-                { key: "todos", label: "Todos" },
-                { key: "PERDA", label: "❌ Perdas" },
-                { key: "VITORIA", label: "✅ Vitórias" },
-                { key: "PENDENTE", label: "⏳ Pendentes" },
-              ].map((f) => (
-                <button
-                  key={f.key}
-                  onClick={() => setFiltroStatusAposta(f.key)}
-                  style={{
-                    padding: "4px 10px",
-                    borderRadius: 4,
-                    border: "1px solid #444",
-                    background: filtroStatusAposta === f.key ? "#2563eb" : "#1a1a1a",
-                    color: "#fff",
-                    cursor: "pointer",
-                    fontSize: 12,
-                  }}
-                >
-                  {f.label}
-                </button>
-              ))}
+            {/* NOVO: Botão de filtro de reds */}
+            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderBottom: "1px solid #2a2a2a" }}>
+              <span style={{ color: "#aaa", fontSize: 13 }}>Filtro:</span>
+              <button
+                onClick={() => setMostrarApenasReds(!mostrarApenasReds)}
+                style={{
+                  background: mostrarApenasReds ? "rgba(255,61,90,0.12)" : "#1c1e22",
+                  border: `1px solid ${mostrarApenasReds ? "rgba(255,61,90,0.4)" : "#3a3c40"}`,
+                  color: mostrarApenasReds ? "#ff3d5a" : "#b4b2a9",
+                  borderRadius: 6,
+                  padding: "4px 12px",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  transition: "all 0.15s",
+                }}
+              >
+                🔴 Apenas Reds
+              </button>
+              <span style={{ color: "#777", fontSize: 11 }}>
+                {mostrarApenasReds ? `${apostasFiltradas.length} red(s)` : `${apostas.length} aposta(s)`}
+              </span>
             </div>
             <table>
               <thead>
@@ -906,32 +911,24 @@ export default function App() {
                 </tr>
               </thead>
               <tbody>
-                {apostas.length === 0 && !loading && (
-                  <tr><td colSpan={5} className="empty">Nenhuma aposta registrada ainda.</td></tr>
+                {apostasFiltradas.length === 0 && !loading && (
+                  <tr><td colSpan={5} className="empty">{mostrarApenasReds ? "Nenhum red encontrado." : "Nenhuma aposta registrada ainda."}</td></tr>
                 )}
-                {(() => {
-                  const filtradas = filtroStatusAposta === "todos"
-                    ? apostas
-                    : apostas.filter((a) => a.status === filtroStatusAposta);
-                  if (filtradas.length === 0 && !loading) {
-                    return <tr><td colSpan={5} className="empty">Nenhuma aposta encontrada para este filtro.</td></tr>;
-                  }
-                  return filtradas.map((a) => (
-                    <tr key={a.id}>
-                      <td>{a.nome_jogo}</td>
-                      <td>{a.odd_lay ?? "—"}</td>
-                      <td>
-                        <span className={a.status === "VITORIA" ? "badge badge-ok" : a.status === "PERDA" ? "badge badge-bad" : "badge"}>
-                          {a.status}
-                        </span>
-                      </td>
-                      <td style={{ color: a.pnl != null && Number(a.pnl) < 0 ? "#f09595" : a.pnl != null && Number(a.pnl) > 0 ? "#4ade80" : undefined, fontWeight: 600 }}>
-                        {a.pnl != null ? a.pnl : "—"}
-                      </td>
-                      <td className="muted" style={{ textAlign: "right" }}>{fmtHora(a.apostado_em)}</td>
-                    </tr>
-                  ));
-                })()}
+                {apostasFiltradas.map((a) => (
+                  <tr key={a.id}>
+                    <td>{a.nome_jogo}</td>
+                    <td>{a.odd_lay ?? "—"}</td>
+                    <td>
+                      <span className={a.status === "VITORIA" ? "badge badge-ok" : a.status === "PERDA" ? "badge badge-bad" : "badge"}>
+                        {a.status}
+                      </span>
+                    </td>
+                    <td style={{ color: a.pnl != null && Number(a.pnl) < 0 ? "#f09595" : a.pnl != null && Number(a.pnl) > 0 ? "#4ade80" : undefined, fontWeight: 600 }}>
+                      {a.pnl != null ? a.pnl : "—"}
+                    </td>
+                    <td className="muted" style={{ textAlign: "right" }}>{fmtHora(a.apostado_em)}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
