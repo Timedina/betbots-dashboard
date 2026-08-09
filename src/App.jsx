@@ -604,6 +604,7 @@ export default function App() {
   const [error, setError] = useState("");
   const [lastUpdate, setLastUpdate] = useState(null);
   const [salvandoChave, setSalvandoChave] = useState(null);
+  const [filtroStatusAposta, setFiltroStatusAposta] = useState("todos");
 
   const bot = todosBots.find((b) => b.id === botId) || null;
 
@@ -869,6 +870,31 @@ export default function App() {
       {tab === "apostas" && (
         <>
           <div className="table-card">
+            <div style={{ padding: "10px 12px", borderBottom: "1px solid #2a2a2a", display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <span style={{ color: "#fff", fontSize: 13, fontWeight: 600, marginRight: 4 }}>Filtro:</span>
+              {[
+                { key: "todos", label: "Todos" },
+                { key: "PERDA", label: "❌ Perdas" },
+                { key: "VITORIA", label: "✅ Vitórias" },
+                { key: "PENDENTE", label: "⏳ Pendentes" },
+              ].map((f) => (
+                <button
+                  key={f.key}
+                  onClick={() => setFiltroStatusAposta(f.key)}
+                  style={{
+                    padding: "4px 10px",
+                    borderRadius: 4,
+                    border: "1px solid #444",
+                    background: filtroStatusAposta === f.key ? "#2563eb" : "#1a1a1a",
+                    color: "#fff",
+                    cursor: "pointer",
+                    fontSize: 12,
+                  }}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
             <table>
               <thead>
                 <tr>
@@ -883,15 +909,29 @@ export default function App() {
                 {apostas.length === 0 && !loading && (
                   <tr><td colSpan={5} className="empty">Nenhuma aposta registrada ainda.</td></tr>
                 )}
-                {apostas.map((a) => (
-                  <tr key={a.id}>
-                    <td>{a.nome_jogo}</td>
-                    <td>{a.odd_lay ?? "—"}</td>
-                    <td>{a.status}</td>
-                    <td>{a.pnl != null ? a.pnl : "—"}</td>
-                    <td className="muted" style={{ textAlign: "right" }}>{fmtHora(a.apostado_em)}</td>
-                  </tr>
-                ))}
+                {(() => {
+                  const filtradas = filtroStatusAposta === "todos"
+                    ? apostas
+                    : apostas.filter((a) => a.status === filtroStatusAposta);
+                  if (filtradas.length === 0 && !loading) {
+                    return <tr><td colSpan={5} className="empty">Nenhuma aposta encontrada para este filtro.</td></tr>;
+                  }
+                  return filtradas.map((a) => (
+                    <tr key={a.id}>
+                      <td>{a.nome_jogo}</td>
+                      <td>{a.odd_lay ?? "—"}</td>
+                      <td>
+                        <span className={a.status === "VITORIA" ? "badge badge-ok" : a.status === "PERDA" ? "badge badge-bad" : "badge"}>
+                          {a.status}
+                        </span>
+                      </td>
+                      <td style={{ color: a.pnl != null && Number(a.pnl) < 0 ? "#f09595" : a.pnl != null && Number(a.pnl) > 0 ? "#4ade80" : undefined, fontWeight: 600 }}>
+                        {a.pnl != null ? a.pnl : "—"}
+                      </td>
+                      <td className="muted" style={{ textAlign: "right" }}>{fmtHora(a.apostado_em)}</td>
+                    </tr>
+                  ));
+                })()}
               </tbody>
             </table>
           </div>
