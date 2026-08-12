@@ -4,6 +4,15 @@ import "./App.css";
 const SUPABASE_URL = "https://rxqotlcxujokzujodyhv.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ4cW90bGN4dWpva3p1am9keWh2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE5ODMyMzUsImV4cCI6MjA5NzU1OTIzNX0.dWYvLVZCBTWGKpNcw4Ux53ojsN7BLI2OVHtA7mwKLaM";
 const BOT_ID = "7449c515-4a4e-4ad3-acda-32916034e9c1";
+const INCIDENTES = {
+  "2026-07-26": "Crash loop (env vars) + fix timeout HTTP",
+  "2026-07-31": "Fix TTL jogos ao vivo + filtro IA (Gemini) travado",
+  "2026-08-03": "Fix status PERDA falso + GEMINI_API_KEY ausente",
+  "2026-08-06": "Captura odd_zebra/odd_empate iniciada",
+  "2026-08-07": "Filtro North American Leagues Cup + /pausar /retomar",
+  "2026-08-11": "Modo sombra de filtros + fix liquidez_total",
+  "2026-08-12": "Fix watchdog + auditoria de seguranca Supabase",
+};
 
 async function sb(path) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
@@ -852,6 +861,7 @@ export default function App() {
                       <th style={{ textAlign: "right", padding: "8px 12px", color: "#aaa", fontSize: 13, borderBottom: "1px solid #2a2a2a" }}>PnL do Dia</th>
                       <th style={{ textAlign: "right", padding: "8px 12px", color: "#aaa", fontSize: 13, borderBottom: "1px solid #2a2a2a" }}>PnL Acumulado</th>
                       <th style={{ textAlign: "left", padding: "8px 12px", color: "#aaa", fontSize: 13, borderBottom: "1px solid #2a2a2a" }}>Barra</th>
+                      <th style={{ textAlign: "left", padding: "8px 12px", color: "#aaa", fontSize: 13, borderBottom: "1px solid #2a2a2a" }}>Evento</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -864,6 +874,13 @@ export default function App() {
                           <div style={{ background: "#2a2a2a", borderRadius: 4, height: 8, width: 150 }}>
                             <div style={{ background: pnl >= 0 ? "#4ade80" : "#f09595", borderRadius: 4, height: 8, width: `${Math.min(100, Math.abs(pnl) / Math.max(...pnlAcumulado.map(d => Math.abs(d.pnl))) * 100)}%` }} />
                           </div>
+                        </td>
+                        <td style={{ padding: "8px 12px", fontSize: 12 }}>
+                          {INCIDENTES[dia] ? (
+                            <span title={INCIDENTES[dia]} style={{ background: "#3b3b1f", color: "#e0d060", padding: "2px 8px", borderRadius: 10, cursor: "help" }}>
+                              🔧 fix
+                            </span>
+                          ) : null}
                         </td>
                       </tr>
                     ))}
