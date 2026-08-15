@@ -106,6 +106,25 @@ function StatusBadge({ aprovado }) {
     </span>
   );
 }
+function FlagBadges({ a }) {
+  const sombraAtivas = [
+    a.sombra_razao_estreita && "Razão estreita",
+    a.sombra_odd01_min25 && "Odd 0-1 < 25",
+    a.sombra_odd01_min30 && "Odd 0-1 < 30",
+    a.sombra_favorito_1_9_2_1 && "Favorito fora 1.90-2.09",
+  ].filter(Boolean);
+  if (!a.no_limite && sombraAtivas.length === 0) return null;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 4 }}>
+      {a.no_limite && (
+        <span className="badge badge-warn" title={a.no_limite_detalhes || ""}>⚠ No limite</span>
+      )}
+      {sombraAtivas.length > 0 && (
+        <span className="badge badge-info" title={sombraAtivas.join(", ")}>👁 Sombra ({sombraAtivas.length})</span>
+      )}
+    </div>
+  );
+}
 
 const FILTROS_GRUPOS = [
   {
@@ -826,7 +845,7 @@ export default function App() {
               {analisadosFiltro.map((a) => (
                 <tr key={a.id}>
                   <td>{a.nome_jogo}<div className="sub">{a.competition}</div></td>
-                  <td><StatusBadge aprovado={a.aprovado} /></td>
+                  <td><StatusBadge aprovado={a.aprovado} /><FlagBadges a={a} /></td>
                   <td className="muted">
                     {a.aprovado ? a.ia_motivo || "—" : (a.motivos || []).join(", ") || "—"}
                     {(a.odd_01 != null || a.odd_10 != null || a.liquidez_disponivel != null) && (
