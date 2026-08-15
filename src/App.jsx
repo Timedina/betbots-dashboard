@@ -90,6 +90,14 @@ function dataBrasilia(ts) {
   return `${map.year}-${map.month}-${map.day}`;
 }
 
+function paramInicial(nome, fallback) {
+  // Le um parametro da URL atual (?nome=valor) no primeiro render.
+  // Usado para restaurar o estado dos filtros ao recarregar a pagina ou abrir um link compartilhado.
+  if (typeof window === "undefined") return fallback;
+  const valor = new URLSearchParams(window.location.search).get(nome);
+  return valor !== null ? valor : fallback;
+}
+
 function MetricCard({ label, value, color }) {
   return (
     <div className="card">
@@ -623,18 +631,36 @@ export default function App() {
   const [segmentos, setSegmentos] = useState([]);
   const [drawdownInfo, setDrawdownInfo] = useState(null);
   const [slippageInfo, setSlippageInfo] = useState(null);
-  const [dataFiltro, setDataFiltro] = useState(dataBrasilia());
+  const [dataFiltro, setDataFiltro] = useState(() => paramInicial("data", dataBrasilia()));
   const [filtros, setFiltros] = useState([]);
   const [todosBots, setTodosBots] = useState([]);
-  const [botId, setBotId] = useState(() => localStorage.getItem("betbots_bot_id") || BOT_ID);
-  const [tab, setTab] = useState("analises");
+  const [botId, setBotId] = useState(
+    () => paramInicial("bot", localStorage.getItem("betbots_bot_id") || BOT_ID)
+  );
+  const [tab, setTab] = useState(() => paramInicial("tab", "analises"));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [lastUpdate, setLastUpdate] = useState(null);
     const [salvandoChave, setSalvandoChave] = useState(null);
 
   // NOVO: Estado para filtrar apenas reds
-  const [mostrarApenasReds, setMostrarApenasReds] = useState(false);
+  const [mostrarApenasReds, setMostrarApenasReds] = useState(() => paramInicial("reds", "0") === "1");
+
+  // NOVO: mantem os filtros (aba, bot, data, reds) sincronizados na URL via
+  // replaceState (sem empilhar historico), permitindo recarregar a pagina ou
+  // compartilhar o link mantendo o mesmo estado de filtros.
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (tab !== "analises") params.set("tab", tab);
+    if (botId) params.set("bot", botId);
+    if (dataFiltro && dataFiltro !== dataBrasilia()) params.set("data", dataFiltro);
+    if (mostrarApenasReds) params.set("reds", "1");
+    const query = params.toString();
+    const novaUrl = query ? `${window.location.pathname}?${query}` : window.location.pathname;
+    if (novaUrl !== `${window.location.pathname}${window.location.search}`) {
+      window.history.replaceState(null, "", novaUrl);
+    }
+  }, [tab, botId, dataFiltro, mostrarApenasReds]);
 
   // NOVO: Derivada que filtra apenas reds quando o toggle está ativo
   const apostasFiltradas = mostrarApenasReds
