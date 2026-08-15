@@ -98,6 +98,22 @@ function paramInicial(nome, fallback) {
   return valor !== null ? valor : fallback;
 }
 
+function faixaOdd(odd) {
+  // Replica exatamente o bucket calculado na view v_apostas_por_segmento no Supabase,
+  // para que o drill-down no front bata com as linhas exibidas em "Desempenho por segmento".
+  const o = Number(odd);
+  if (!Number.isFinite(o)) return null;
+  if (o < 13) return "10-13";
+  if (o < 16) return "13-16";
+  if (o < 20) return "16-20";
+  return "20+";
+}
+
+function codificarSegmento(s) {
+  // Chave estavel usada tanto de identificador de selecao quanto de valor na URL.
+  return [s.competition || "", s.placar_lay || "", s.faixa_odd || ""].join("|");
+}
+
 function MetricCard({ label, value, color }) {
   return (
     <div className="card">
@@ -646,7 +662,11 @@ export default function App() {
   // NOVO: Estado para filtrar apenas reds
   const [mostrarApenasReds, setMostrarApenasReds] = useState(() => paramInicial("reds", "0") === "1");
 
-  // NOVO: mantem os filtros (aba, bot, data, reds) sincronizados na URL via
+  // NOVO: segmento selecionado via drill-down na tabela "Desempenho por segmento"
+  // (aba Apostas). Guardado como chave codificada "competition|placar_lay|faixa_odd".
+  const [segmentoAtivo, setSegmentoAtivo] = useState(() => paramInicial("seg", "") || null);
+
+  // NOVO: mantem os filtros (aba, bot, data, reds, segmento) sincronizados na URL via
   // replaceState (sem empilhar historico), permitindo recarregar a pagina ou
   // compartilhar o link mantendo o mesmo estado de filtros.
   useEffect(() => {
@@ -655,17 +675,22 @@ export default function App() {
     if (botId) params.set("bot", botId);
     if (dataFiltro && dataFiltro !== dataBrasilia()) params.set("data", dataFiltro);
     if (mostrarApenasReds) params.set("reds", "1");
+    if (segmentoAtivo) params.set("seg", segmentoAtivo);
     const query = params.toString();
     const novaUrl = query ? `${window.location.pathname}?${query}` : window.location.pathname;
     if (novaUrl !== `${window.location.pathname}${window.location.search}`) {
       window.history.replaceState(null, "", novaUrl);
     }
-  }, [tab, botId, dataFiltro, mostrarApenasReds]);
+  }, [tab, botId, dataFiltro, mostrarApenasReds, segmentoAtivo]);
 
-  // NOVO: Derivada que filtra apenas reds quando o toggle está ativo
-  const apostasFiltradas = mostrarApenasReds
-    ? apostas.filter((a) => a.pnl < 0)
-    : apostas;
+  // NOVO: Derivada que aplica o toggle de reds e o drill-down de segmento (se ativos)
+  const apostasFiltradas = apostas
+    .filter((a) => !mostrarApenasReds || a.pnl < 0)
+    .filter((a) => !segmentoAtivo || codificarSegmento({
+      competition: a.competition,
+      placar_lay: a.placar_lay,
+      faixa_odd: faixaOdd(a.odd_lay),
+    }) === segmentoAtivo);
 
   const bot = todosBots.find((b) => b.id === botId) || null;
 
@@ -939,8 +964,8 @@ export default function App() {
           {tab === "apostas" && (
         <>
           <div className="table-card">
-            {/* NOVO: Botão de filtro de reds */}
-            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderBottom: "1px solid #2a2a2a" }}>
+            {/* NOVO: Botão de filtro de reds + chip do drill-down de segmento */}
+            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderBottom: "1px solid #2a2a2a", flexWrap: "wrap" }}>
               <span style={{ color: "#aaa", fontSize: 13 }}>Filtro:</span>
               <button
                 onClick={() => setMostrarApenasReds(!mostrarApenasReds)}
@@ -958,8 +983,26 @@ export default function App() {
               >
                 🔴 Apenas Reds
               </button>
+              {segmentoAtivo && (
+                <button
+                  onClick={() => setSegmentoAtivo(null)}
+                  title="Clique para remover o filtro de segmento"
+                  style={{
+                    background: "rgba(96,165,250,0.12)",
+                    border: "1px solid rgba(96,165,250,0.4)",
+                    color: "#60a5fa",
+                    borderRadius: 6,
+                    padding: "4px 12px",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  🔎 Segmento: {segmentoAtivo.split("|").filter(Boolean).join(" · ")} ✕
+                </button>
+              )}
               <span style={{ color: "#777", fontSize: 11 }}>
-                {mostrarApenasReds ? `${apostasFiltradas.length} red(s)` : `${apostas.length} aposta(s)`}
+                {mostrarApenasReds || segmentoAtivo ? `${apostasFiltradas.length} de ${apostas.length} aposta(s)` : `${apostas.length} aposta(s)`}
               </span>
             </div>
             <table>
@@ -974,7 +1017,9 @@ export default function App() {
               </thead>
               <tbody>
                 {apostasFiltradas.length === 0 && !loading && (
-                  <tr><td colSpan={5} className="empty">{mostrarApenasReds ? "Nenhum red encontrado." : "Nenhuma aposta registrada ainda."}</td></tr>
+                  <tr><td colSpan={5} className="empty">
+                    {segmentoAtivo ? "Nenhuma aposta encontrada nesse segmento." : mostrarApenasReds ? "Nenhum red encontrado." : "Nenhuma aposta registrada ainda."}
+                  </td></tr>
                 )}
                 {apostasFiltradas.map((a) => (
                   <tr key={a.id}>
@@ -1006,8 +1051,9 @@ export default function App() {
 
           {segmentos.length > 0 && (
             <div className="table-card" style={{ marginTop: 12 }}>
-              <div style={{ padding: "10px 12px", borderBottom: "1px solid #2a2a2a", color: "#fff", fontSize: 14, fontWeight: 600 }}>
-                Desempenho por segmento
+              <div style={{ padding: "10px 12px", borderBottom: "1px solid #2a2a2a", color: "#fff", fontSize: 14, fontWeight: 600, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>Desempenho por segmento</span>
+                <span style={{ color: "#777", fontSize: 11, fontWeight: 400 }}>Clique numa linha para filtrar as apostas acima</span>
               </div>
               <table>
                 <thead>
@@ -1022,19 +1068,32 @@ export default function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  {segmentos.map((s, i) => (
-                    <tr key={i}>
-                      <td>{s.competition || "—"}</td>
-                      <td>{s.placar_lay || "—"}</td>
-                      <td>{s.faixa_odd}</td>
-                      <td style={{ textAlign: "right" }}>{s.total_apostas}</td>
-                      <td style={{ textAlign: "right" }}>{s.win_rate_pct}%</td>
-                      <td style={{ textAlign: "right", color: s.pnl_total >= 0 ? "#4ade80" : "#f09595", fontWeight: 600 }}>
-                        {s.pnl_total >= 0 ? "+" : ""}{s.pnl_total}u
-                      </td>
-                      <td style={{ textAlign: "right" }}>{s.roi_pct != null ? `${s.roi_pct}%` : "—"}</td>
-                    </tr>
-                  ))}
+                  {segmentos.map((s, i) => {
+                    const chave = codificarSegmento(s);
+                    const ativo = segmentoAtivo === chave;
+                    return (
+                      <tr
+                        key={i}
+                        onClick={() => setSegmentoAtivo(ativo ? null : chave)}
+                        title={ativo ? "Clique para remover o filtro" : "Clique para filtrar as apostas desse segmento"}
+                        style={{
+                          cursor: "pointer",
+                          background: ativo ? "rgba(96,165,250,0.10)" : undefined,
+                          boxShadow: ativo ? "inset 3px 0 0 #60a5fa" : undefined,
+                        }}
+                      >
+                        <td>{s.competition || "—"}</td>
+                        <td>{s.placar_lay || "—"}</td>
+                        <td>{s.faixa_odd}</td>
+                        <td style={{ textAlign: "right" }}>{s.total_apostas}</td>
+                        <td style={{ textAlign: "right" }}>{s.win_rate_pct}%</td>
+                        <td style={{ textAlign: "right", color: s.pnl_total >= 0 ? "#4ade80" : "#f09595", fontWeight: 600 }}>
+                          {s.pnl_total >= 0 ? "+" : ""}{s.pnl_total}u
+                        </td>
+                        <td style={{ textAlign: "right" }}>{s.roi_pct != null ? `${s.roi_pct}%` : "—"}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
