@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import "./App.css";
+import AbaEstatistica from "./components/AbaEstatistica";
 
 const SUPABASE_URL = "https://rxqotlcxujokzujodyhv.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ4cW90bGN4dWpva3p1am9keWh2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE5ODMyMzUsImV4cCI6MjA5NzU1OTIzNX0.dWYvLVZCBTWGKpNcw4Ux53ojsN7BLI2OVHtA7mwKLaM";
@@ -778,6 +779,7 @@ export default function App() {
     { id: "chat", label: "Chat IA" },
     { id: "estrategias", label: "Estrategias" },
     { id: "grafico", label: "Grafico PnL" },
+    { id: "estatistica", label: "Estatistica" },
   ];
 
   const analisadosFiltro = analises.filter((a) => a.analisado_em && dataBrasilia(a.analisado_em) === dataFiltro);
@@ -1156,6 +1158,8 @@ export default function App() {
       {tab === "chat" && bot && <ChatIA botId={bot.id} />}
 
       {tab === "estrategias" && <EstrategiasTab />}
+
+      {tab === "estatistica" && <AbaEstatistica />}
 
       {tab !== "filtros" && tab !== "chat" && tab !== "estrategias" && (
         <p className="footer-note">Atualiza automaticamente a cada 30s.</p>
