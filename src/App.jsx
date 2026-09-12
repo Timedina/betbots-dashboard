@@ -648,6 +648,7 @@ export default function App() {
   const [segmentos, setSegmentos] = useState([]);
   const [drawdownInfo, setDrawdownInfo] = useState(null);
   const [slippageInfo, setSlippageInfo] = useState(null);
+  const [sessaoBetfair, setSessaoBetfair] = useState(null);
   const [dataFiltro, setDataFiltro] = useState(() => paramInicial("data", dataBrasilia()));
   const [filtros, setFiltros] = useState([]);
   const [todosBots, setTodosBots] = useState([]);
@@ -713,10 +714,11 @@ export default function App() {
       if (!idAtivo) {
         setAnalises([]); setApostas([]); setFiltros([]);
         setStatsResumo(null); setSegmentos([]); setDrawdownInfo(null); setSlippageInfo(null);
+        setSessaoBetfair(null);
         setLastUpdate(new Date()); return;
       }
 
-      const [an, ap, fl, resumo, seg, dd, slip] = await Promise.all([
+      const [an, ap, fl, resumo, seg, dd, slip, sessao] = await Promise.all([
         sb(`analises?select=*&bot_id=eq.${idAtivo}&order=analisado_em.desc&limit=200`),
         sb(`apostas?select=*&bot_id=eq.${idAtivo}&order=apostado_em.desc&limit=500`),
         sb(`filtros?select=*&bot_id=eq.${idAtivo}`),
@@ -724,6 +726,7 @@ export default function App() {
         sb(`v_apostas_por_segmento?bot_id=eq.${idAtivo}&order=pnl_total.desc`),
         sb(`v_apostas_drawdown_maximo?bot_id=eq.${idAtivo}`),
         sb(`v_apostas_slippage?bot_id=eq.${idAtivo}`),
+        sb(`sessao_betfair?select=*&bot_origem=eq.${idAtivo}`),
       ]);
       setAnalises(an);
       setApostas(ap);
@@ -732,6 +735,7 @@ export default function App() {
       setSegmentos(seg);
       setDrawdownInfo(dd[0] || null);
       setSlippageInfo(slip[0] || null);
+      setSessaoBetfair(sessao[0] || null);
       setLastUpdate(new Date());
     } catch (e) {
       setError(e.message);
@@ -771,6 +775,9 @@ export default function App() {
   const vitorias = apostasComResultado.filter((a) => a.status === "VITORIA").length;
   const derrotas = apostasComResultado.filter((a) => a.status === "PERDA").length;
   const taxaAcerto = apostasComResultado.length ? Math.round((vitorias / apostasComResultado.length) * 100) : 0;
+  const apostasAtivas = apostas.filter((a) => a.status === "PENDENTE");
+  const minutosSessao = sessaoBetfair ? (Date.now() - new Date(sessaoBetfair.atualizada_em).getTime()) / 60000 : null;
+  const sessaoOk = minutosSessao !== null && minutosSessao <= 15;
 
   const ABAS = [
     { id: "analises", label: "Analises" },
@@ -833,6 +840,14 @@ export default function App() {
             <MetricCard label="PnL hoje" value={`${pnlHoje >= 0 ? "+" : ""}${pnlHoje.toFixed(2)}u`} color={pnlHoje >= 0 ? "#4ade80" : "#f09595"} />
             <MetricCard label="PnL total" value={`${pnlTotal >= 0 ? "+" : ""}${pnlTotal.toFixed(2)}u`} color={pnlTotal >= 0 ? "#4ade80" : "#f09595"} />
             <MetricCard label="Acerto apostas" value={`${vitorias}V / ${derrotas}D (${taxaAcerto}%)`} color={taxaAcerto >= 90 ? "#4ade80" : taxaAcerto >= 75 ? "#378ade" : "#f09595"} />
+          </div>
+          <div className="metrics" style={{"marginTop": "8px"}}>
+            <MetricCard label="Entradas ativas" value={apostasAtivas.length} color={apostasAtivas.length > 0 ? "#378ade" : "#888"} />
+            <MetricCard
+              label="Sessao Betfair"
+              value={sessaoBetfair ? `${sessaoOk ? "Ativa" : "Parada"} ha ${Math.round(minutosSessao)}min` : "Sem dados"}
+              color={sessaoOk ? "#4ade80" : "#888"}
+            />
           </div>
           {statsResumo && (
             <div className="metrics" style={{"marginTop": "8px"}}>
