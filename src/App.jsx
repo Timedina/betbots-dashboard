@@ -722,7 +722,6 @@ export default function App() {
       const hojeISO = new Date().toISOString().slice(0, 10);
       const [an, ap, fl, resumo, seg, dd, slip, sessao, hojeCompleto] = await Promise.all([
         sb(`analises?select=*&bot_id=eq.${idAtivo}&order=analisado_em.desc&limit=200`),
-        sb(`analises?select=aprovado&bot_id=eq.${idAtivo}&analisado_em=gte.${hojeISO}`),
         sb(`apostas?select=*&bot_id=eq.${idAtivo}&order=apostado_em.desc&limit=500`),
         sb(`filtros?select=*&bot_id=eq.${idAtivo}`),
         sb(`v_apostas_resumo?bot_id=eq.${idAtivo}`),
@@ -730,6 +729,7 @@ export default function App() {
         sb(`v_apostas_drawdown_maximo?bot_id=eq.${idAtivo}`),
         sb(`v_apostas_slippage?bot_id=eq.${idAtivo}`),
         sb(`sessao_betfair?select=*&bot_origem=eq.${idAtivo}`),
+        sb(`analises?select=aprovado&bot_id=eq.${idAtivo}&analisado_em=gte.${hojeISO}`),
       ]);
       setAnalises(an);
       setAnalisesHojeCompleto(hojeCompleto);
