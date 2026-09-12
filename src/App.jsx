@@ -643,6 +643,7 @@ function CampoFiltro({ meta, linha, onSalvar, salvando }) {
 
 export default function App() {
   const [analises, setAnalises] = useState([]);
+  const [analisesHojeCompleto, setAnalisesHojeCompleto] = useState([]);
   const [apostas, setApostas] = useState([]);
   const [statsResumo, setStatsResumo] = useState(null);
   const [segmentos, setSegmentos] = useState([]);
@@ -712,14 +713,16 @@ export default function App() {
       if (idAtivo && idAtivo !== botId) setBotId(idAtivo);
 
       if (!idAtivo) {
-        setAnalises([]); setApostas([]); setFiltros([]);
+        setAnalises([]); setApostas([]); setAnalisesHojeCompleto([]); setFiltros([]);
         setStatsResumo(null); setSegmentos([]); setDrawdownInfo(null); setSlippageInfo(null);
         setSessaoBetfair(null);
         setLastUpdate(new Date()); return;
       }
 
-      const [an, ap, fl, resumo, seg, dd, slip, sessao] = await Promise.all([
+      const hojeISO = new Date().toISOString().slice(0, 10);
+      const [an, ap, fl, resumo, seg, dd, slip, sessao, hojeCompleto] = await Promise.all([
         sb(`analises?select=*&bot_id=eq.${idAtivo}&order=analisado_em.desc&limit=200`),
+        sb(`analises?select=aprovado&bot_id=eq.${idAtivo}&analisado_em=gte.${hojeISO}`),
         sb(`apostas?select=*&bot_id=eq.${idAtivo}&order=apostado_em.desc&limit=500`),
         sb(`filtros?select=*&bot_id=eq.${idAtivo}`),
         sb(`v_apostas_resumo?bot_id=eq.${idAtivo}`),
@@ -729,6 +732,7 @@ export default function App() {
         sb(`sessao_betfair?select=*&bot_origem=eq.${idAtivo}`),
       ]);
       setAnalises(an);
+      setAnalisesHojeCompleto(hojeCompleto);
       setApostas(ap);
       setFiltros(fl);
       setStatsResumo(resumo[0] || null);
@@ -765,7 +769,7 @@ export default function App() {
   };
 
   const hoje = new Date().toISOString().slice(0, 10);
-  const analisadosHoje = analises.filter((a) => (a.analisado_em || "").startsWith(hoje));
+  const analisadosHoje = analisesHojeCompleto;
   const aprovadosHoje = analisadosHoje.filter((a) => a.aprovado);
   const taxa = analisadosHoje.length ? Math.round((aprovadosHoje.length / analisadosHoje.length) * 100) : 0;
   const apostasComResultado = apostas.filter((a) => a.status !== "PENDENTE");
