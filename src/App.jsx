@@ -772,7 +772,10 @@ export default function App() {
   const analisadosHoje = analisesHojeCompleto;
   const aprovadosHoje = analisadosHoje.filter((a) => a.aprovado);
   const taxa = analisadosHoje.length ? Math.round((aprovadosHoje.length / analisadosHoje.length) * 100) : 0;
-  const apostasComResultado = apostas.filter((a) => a.status !== "PENDENTE");
+  const dataCorteEstatisticas = filtros.find((f) => f.chave === "DATA_CORTE_ESTATISTICAS")?.valor_texto || null;
+  const apostasComResultado = apostas
+    .filter((a) => a.status !== "PENDENTE")
+    .filter((a) => !dataCorteEstatisticas || (a.apostado_em || "") >= dataCorteEstatisticas);
   const apostasHoje = apostasComResultado.filter((a) => (a.apostado_em || "").startsWith(hoje));
   const pnlHoje = apostasHoje.reduce((acc, a) => acc + (Number(a.pnl) || 0), 0);
   const pnlTotal = apostasComResultado.reduce((acc, a) => acc + (Number(a.pnl) || 0), 0);
@@ -797,7 +800,7 @@ export default function App() {
 
   // PnL acumulado por dia
   const pnlPorDia = {};
-  apostas.filter((a) => a.status !== "PENDENTE").forEach((a) => {
+  apostasComResultado.forEach((a) => {
     const dia = (a.apostado_em || "").slice(0, 10);
     if (!dia) return;
     pnlPorDia[dia] = (pnlPorDia[dia] || 0) + (Number(a.pnl) || 0);
